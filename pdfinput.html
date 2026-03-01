@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>PDF Summarizer - VortexMind Educator</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='input.css') }}" />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favico.ico') }}">
+  <style>
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      color: var(--gray-300);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.3s ease;
+      margin-bottom: 32px;
+    }
+
+    .back-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: white;
+      transform: translateX(-5px);
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-icon">🧠</div>
+        <div class="logo-text">
+          <h1>VortexMind Educator</h1>
+          <p>PDF Summarizer</p>
+        </div>
+      </div>
+    </div>
+    <div class="header-center">
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        <span>AI Online</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="date-section">
+        <div class="date-label">Today's Date</div>
+        <div class="date-value" id="currentDate">Loading...</div>
+      </div>
+      <div class="user-profile">
+        <div class="user-avatar">S</div>
+        <div class="user-info">
+          <span class="user-name">Student</span>
+          <span class="user-tier">Premium</span>
+        </div>
+      </div>
+      <button id="themeToggle" class="theme-toggle" aria-label="Toggle theme">
+        <span class="theme-icon">🌙</span>
+      </button>
+    </div>
+  </header>
+
+  <!- Main Container -->
+    <div class="container">
+      <a href="/" class="back-btn">
+        <span>←</span> Back to Portal
+      </a>
+
+      <div class="welcome-section">
+        <h2>PDF Summarizer 📄</h2>
+        <p>Upload your PDF and let AI help you study</p>
+      </div>
+
+      <!-- Upload Section -->
+      <div class="upload-section">
+        <div class="upload-header">
+          <h3>Start Your AI-Powered Analysis</h3>
+          <p>Upload your PDF document to begin intelligent analysis</p>
+        </div>
+
+        <form id="pdfForm" method="post" action="/upload-pdf" enctype="multipart/form-data">
+          <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📄</div>
+            <div class="upload-text">
+              <h4>Drop your PDF here or click to browse</h4>
+              <p>Maximum file size: 4MB</p>
+            </div>
+            <input type="file" name="pdf_file" accept=".pdf" required id="fileInput" />
+            <div class="file-info" id="fileInfo" style="display: none">
+              <span class="file-name" id="fileName"></span>
+              <span class="file-size" id="fileSize"></span>
+            </div>
+          </div>
+          <button type="submit" class="upload-btn">
+            <span class="btn-icon">🚀</span>
+            <span class="btn-text">Start AI Analysis</span>
+          </button>
+        </form>
+
+        <div id="loadingMessage" style="display: none">
+          <div class="loading-content">
+            <div class="loading-animation">
+              <div class="spinner"></div>
+              <div class="loading-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            </div>
+            <h4 id="loadingText">Processing your PDF with AI...</h4>
+            <p id="loadingDetails"></p>
+          </div>
+        </div>
+
+        <div id="errorMessage" style="display: none">
+          <div class="error-content">
+            <div class="error-icon">⚠️</div>
+            <h4>Upload Failed</h4>
+            <p id="errorText"></p>
+            <button onclick="resetForm()" class="retry-btn">
+              <span>🔄</span>
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Realtime Date Display
+      function updateDateTime() {
+        const now = new Date();
+        const dateString = now.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        const timeString = now.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        document.getElementById('currentDate').textContent = `${dateString} • ${timeString}`;
+      }
+
+      updateDateTime();
+      setInterval(updateDateTime, 1000);
+
+      // Theme Toggle Functionality
+      const themeToggle = document.getElementById("themeToggle");
+      const themeIcon = document.querySelector(".theme-icon");
+
+      // Load saved theme or default to dark
+      const savedTheme = localStorage.getItem("theme") || "dark";
+      document.body.setAttribute("data-theme", savedTheme);
+      updateThemeIcon(savedTheme);
+
+      themeToggle.addEventListener("click", () => {
+        const currentTheme = document.body.getAttribute("data-theme");
+        const newTheme = currentTheme === "dark" ? "light" : "dark";
+
+        document.body.setAttribute("data-theme", newTheme);
+        localStorage.setItem("theme", newTheme);
+        updateThemeIcon(newTheme);
+      });
+
+      function updateThemeIcon(theme) {
+        themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
+      }
+
+      const pdfForm = document.getElementById("pdfForm");
+      const loadingMessage = document.getElementById("loadingMessage");
+      const errorMessage = document.getElementById("errorMessage");
+      const fileInput = document.querySelector('input[type="file"]');
+
+      // Upload area interactions
+      const uploadArea = document.getElementById("uploadArea");
+      const fileInfo = document.getElementById("fileInfo");
+      const fileName = document.getElementById("fileName");
+      const fileSize = document.getElementById("fileSize");
+
+      // Drag and drop functionality
+      uploadArea.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        uploadArea.classList.add("dragover");
+      });
+
+      uploadArea.addEventListener("dragleave", function (e) {
+        e.preventDefault();
+        uploadArea.classList.remove("dragover");
+      });
+
+      uploadArea.addEventListener("drop", function (e) {
+        e.preventDefault();
+        uploadArea.classList.remove("dragover");
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          fileInput.files = files;
+          handleFileSelect(files[0]);
+        }
+      });
+
+      // Show file size when selected
+      fileInput.addEventListener("change", function (e) {
+        const file = e.target.files[0];
+        if (file) {
+          handleFileSelect(file);
+        }
+      });
+
+      function handleFileSelect(file) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        console.log(`Selected file: ${file.name}, Size: ${sizeMB}MB`);
+
+        if (file.size > 4 * 1024 * 1024) {
+          alert("File is too large. Maximum size is 4MB (Vercel limit).");
+          fileInput.value = "";
+          fileInfo.style.display = "none";
+          return;
+        }
+
+        // Show file info
+        fileName.textContent = file.name;
+        fileSize.textContent = `${sizeMB} MB`;
+        fileInfo.style.display = "flex";
+      }
+
+      function resetForm() {
+        loadingMessage.style.display = "none";
+        errorMessage.style.display = "none";
+        pdfForm.style.display = "block";
+      }
+
+      pdfForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        const file = fileInput.files[0];
+        if (!file) {
+          alert("Please select a PDF file");
+          return;
+        }
+
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+
+        pdfForm.style.display = "none";
+        loadingMessage.style.display = "block";
+        document.getElementById(
+          "loadingDetails"
+        ).textContent = `File: ${file.name} (${sizeMB}MB)`;
+
+        const formData = new FormData(pdfForm);
+
+        // Add timeout for large files
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+
+        fetch("/upload-pdf", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        })
+          .then(async (response) => {
+            clearTimeout(timeoutId);
+            const data = await response.json();
+            if (!response.ok) {
+              // Use the actual error message from the server
+              throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            return data;
+          })
+          .then((data) => {
+            console.log("Upload response:", data);
+            if (data.success) {
+              document.getElementById("loadingText").textContent =
+                "Success! Redirecting...";
+              setTimeout(() => {
+                window.location.href = "/viewer";
+              }, 1000);
+            } else {
+              throw new Error(data.error || "Upload failed");
+            }
+          })
+          .catch((error) => {
+            clearTimeout(timeoutId);
+            console.error("Upload error:", error);
+
+            loadingMessage.style.display = "none";
+            errorMessage.style.display = "block";
+
+            let errorText = "Upload failed: ";
+            if (error.name === "AbortError") {
+              errorText += "Upload timed out. Please try with a smaller file.";
+            } else {
+              errorText += error.message;
+            }
+
+            document.getElementById("errorText").textContent = errorText;
+          });
+      });
+    </script>
+</body>
+
+</html>

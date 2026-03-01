@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>VortexMind Educator - PDF Chat Viewer</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='viewer.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favico.ico') }}">
+  </head>
+  <body>
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <div class="logo-icon">🧠</div>
+                <div class="logo-text">
+                    <h1>VortexMind Educator</h1>
+                    <p>AI Study Assistant</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pomodoro Timer -->
+        <div class="header-center">
+            <div class="pomodoro-timer">
+                <div class="pomodoro-display">
+                    <div class="pomodoro-mode" id="pomodoroMode">🎯 STUDY MODE</div>
+                    <div class="pomodoro-time" id="pomodoroTime">40:00</div>
+                    <div class="pomodoro-session">Session <span id="sessionCount">1</span></div>
+                </div>
+                <div class="pomodoro-controls">
+                    <button id="pomodoroStart" class="pomo-btn start-btn">▶ Start</button>
+                    <button id="pomodoroPause" class="pomo-btn pause-btn" style="display:none;">⏸ Pause</button>
+                    <button id="pomodoroReset" class="pomo-btn reset-btn">↺ Reset</button>
+                    <button id="pomodoroSkip" class="pomo-btn skip-btn">⏭ Skip</button>
+                </div>
+                <div class="pomodoro-progress">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="header-right">
+            <div class="date-section">
+                <div class="date-label">Today's Date</div>
+                <div class="date-value" id="currentDate"></div>
+            </div>
+            <div class="user-profile">
+                <div class="user-avatar">S</div>
+                <div class="user-info">
+                    <span class="user-name">Student</span>
+                    <span class="user-tier">Premium</span>
+                </div>
+            </div>
+            <button id="themeToggle" class="theme-toggle" aria-label="Toggle theme">
+                <span class="theme-icon">🌙</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="viewer-container">
+      <div class="pdf-section">
+        <div class="pdf-header">
+          <h2>PDF Viewer</h2>
+          <button id="backBtn" onclick="window.location.href='/'">
+            ← Upload New PDF
+          </button>
+        </div>
+        <div class="pdf-viewer">
+          <iframe id="pdfFrame" src="" width="100%" height="100%"></iframe>
+        </div>
+      </div>
+
+      <div class="chat-section">
+        <div class="chat-header">
+          <div class="header-content">
+            <h2>AI Assistant</h2>
+            <p>Ask me anything about your PDF!</p>
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chatMessages">
+          <div class="message bot-message">
+            <div class="message-content">
+              Hello! I've analyzed your PDF. Feel free to ask me any questions
+              about its content.
+            </div>
+          </div>
+        </div>
+        
+        <div class="typing-indicator" id="typingIndicator" style="display: none;">
+          <div class="typing-avatar">🤖</div>
+          <div class="typing-bubble">
+            <div class="typing-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <div class="typing-text">AI is thinking...</div>
+          </div>
+        </div>
+
+        <div class="chat-input-container">
+          <div class="button-row">
+            <button id="summarizeBtn" class="summarize-btn">📄 Summarize PDF</button>
+            <button id="mindmapBtn" class="mindmap-btn">🧩 Mind Map</button>
+            <button id="quizBtn" class="quiz-btn">❓ Start Quiz</button>
+            <button id="youtubeBtn" class="youtube-btn">🎥 YouTube Search</button>
+          </div>
+
+          <div id="youtubeSearch" class="youtube-search" style="display: none;">
+            <div class="youtube-input-row">
+              <input
+                type="text"
+                id="youtubeInput"
+                placeholder="What do you want to search on YouTube?"
+                maxlength="200"
+              />
+              <button id="searchBtn" class="search-btn">Search</button>
+              <button id="cancelBtn" class="cancel-btn">Cancel</button>
+            </div>
+          </div>
+          
+          <div class="input-row">
+            <input
+              type="text"
+              id="chatInput"
+              placeholder="Ask a question or answer quiz here!"
+              maxlength="500"
+            />
+            <button id="sendBtn">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+<script>
+
+// ===== POMODORO TIMER =====
+const STUDY_TIME = 40 * 60; // 40 minutes in seconds
+const BREAK_TIME = 5 * 60;  // 5 minutes in seconds
+
+let pomodoroInterval = null;
+let timeRemaining = STUDY_TIME;
+let isStudyMode = true;
+let isPaused = true;
+let sessionCount = 1;
+
+const pomodoroTimeEl = document.getElementById('pomodoroTime');
+const pomodoroModeEl = document.getElementById('pomodoroMode');
+const sessionCountEl = document.getElementById('sessionCount');
+const progressBarEl = document.getElementById('progressBar');
+const startBtn = document.getElementById('pomodoroStart');
+const pauseBtn = document.getElementById('pomodoroPause');
+const resetBtn = document.getElementById('pomodoroReset');
+const skipBtn = document.getElementById('pomodoroSkip');
+
+function formatPomodoroTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+function updateDisplay() {
+    pomodoroTimeEl.textContent = formatPomodoroTime(timeRemaining);
+    sessionCountEl.textContent = sessionCount;
+    
+    // Update mode display
+    if (isStudyMode) {
+        pomodoroModeEl.textContent = '🎯 STUDY MODE';
+        pomodoroModeEl.style.background = 'linear-gradient(135deg, #a855f7, #ec4899)';
+    } else {
+        pomodoroModeEl.textContent = '☕ BREAK TIME';
+        pomodoroModeEl.style.background = 'linear-gradient(135deg, #22c55e, #4ade80)';
+    }
+    
+    // Update progress bar
+    const totalTime = isStudyMode ? STUDY_TIME : BREAK_TIME;
+    const progress = ((totalTime - timeRemaining) / totalTime) * 100;
+    progressBarEl.style.width = `${progress}%`;
+    progressBarEl.style.background = isStudyMode 
+        ? 'linear-gradient(90deg, #a855f7, #ec4899)' 
+        : 'linear-gradient(90deg, #22c55e, #4ade80)';
+}
+
+function startPomodoro() {
+    if (pomodoroInterval) return;
+    
+    isPaused = false;
+    startBtn.style.display = 'none';
+    pauseBtn.style.display = 'inline-flex';
+    
+    pomodoroInterval = setInterval(() => {
+        timeRemaining--;
+        updateDisplay();
+        
+        if (timeRemaining <= 0) {
+            clearInterval(pomodoroInterval);
+            pomodoroInterval = null;
+            
+            // Play notification sound (beep)
+            playNotificationSound();
+            
+            if (isStudyMode) {
+                // Switch to break
+                isStudyMode = false;
+                timeRemaining = BREAK_TIME;
+                showNotification('🎉 Study session complete!', 'Time for a 5-minute break!');
+            } else {
+                // Switch to study
+                isStudyMode = true;
+                timeRemaining = STUDY_TIME;
+                sessionCount++;
+                showNotification('💪 Break is over!', 'Ready for another study session?');
+            }
+            
+            updateDisplay();
+            isPaused = true;
+            startBtn.style.display = 'inline-flex';
+            pauseBtn.style.display = 'none';
+        }
+    }, 1000);
+}
+
+function pausePomodoro() {
+    clearInterval(pomodoroInterval);
+    pomodoroInterval = null;
+    isPaused = true;
+    startBtn.style.display = 'inline-flex';
+    pauseBtn.style.display = 'none';
+}
+
+function resetPomodoro() {
+    clearInterval(pomodoroInterval);
+    pomodoroInterval = null;
+    isPaused = true;
+    isStudyMode = true;
+    timeRemaining = STUDY_TIME;
+    sessionCount = 1;
+    startBtn.style.display = 'inline-flex';
+    pauseBtn.style.display = 'none';
+    updateDisplay();
+}
+
+function skipPhase() {
+    clearInterval(pomodoroInterval);
+    pomodoroInterval = null;
+    
+    if (isStudyMode) {
+        isStudyMode = false;
+        timeRemaining = BREAK_TIME;
+    } else {
+        isStudyMode = true;
+        timeRemaining = STUDY_TIME;
+        sessionCount++;
+    }
+    
+    isPaused = true;
+    startBtn.style.display = 'inline-flex';
+    pauseBtn.style.display = 'none';
+    updateDisplay();
+}
+
+function playNotificationSound() {
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        gainNode.gain.value = 0.3;
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.3);
+        
+        setTimeout(() => {
+            const osc2 = audioContext.createOscillator();
+            osc2.connect(gainNode);
+            osc2.frequency.value = 1000;
+            osc2.type = 'sine';
+            osc2.start();
+            osc2.stop(audioContext.currentTime + 0.3);
+        }, 150);
+    } catch(e) {
+        console.log('Audio not supported');
+    }
+}
+
+function showNotification(title, body) {
+    // Browser notification if permitted
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body: body, icon: '🧠' });
+    }
+    // Also show in chat
+    addMessage(`<strong>${title}</strong><br>${body}`);
+}
+
+// Request notification permission
+if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+}
+
+// Event listeners for Pomodoro
+startBtn.addEventListener('click', startPomodoro);
+pauseBtn.addEventListener('click', pausePomodoro);
+resetBtn.addEventListener('click', resetPomodoro);
+skipBtn.addEventListener('click', skipPhase);
+
+// Initialize display
+updateDisplay();
+
+// ===== THEME TOGGLE =====
+const themeToggle = document.getElementById('themeToggle');
+const themeIcon = document.querySelector('.theme-icon');
+const savedTheme = localStorage.getItem('theme') || 'dark';
+document.body.setAttribute('data-theme', savedTheme);
+updateThemeIcon(savedTheme);
+
+themeToggle.addEventListener('click', () => {
+    const currentTheme = document.body.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.body.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeIcon(newTheme);
+});
+
+function updateThemeIcon(theme) {
+    themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+document.getElementById('currentDate').textContent = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+});
+
+
+window.addEventListener("load", function () {
+  fetch("/get-pdf-info")
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.filename) {
+        document.getElementById("pdfFrame").src = "/pdf/" + data.filename;
+      } else {
+        window.location.href = "/";
+      }
+    })
+    .catch((error) => {
+      console.error("Error:", error);
+      window.location.href = "/";
+    });
+});
+
+const chatInput = document.getElementById("chatInput");
+const sendBtn = document.getElementById("sendBtn");
+const summarizeBtn = document.getElementById("summarizeBtn");
+const mindmapBtn = document.getElementById("mindmapBtn");
+const quizBtn = document.getElementById("quizBtn");
+const youtubeBtn = document.getElementById("youtubeBtn");
+const youtubeSearch = document.getElementById("youtubeSearch");
+const youtubeInput = document.getElementById("youtubeInput");
+const searchBtn = document.getElementById("searchBtn");
+const cancelBtn = document.getElementById("cancelBtn");
+const chatMessages = document.getElementById("chatMessages");
+const typingIndicator = document.getElementById("typingIndicator");
+
+function addMessage(content, isUser = false) {
+  const messageDiv = document.createElement("div");
+  messageDiv.className = `message ${isUser ? "user-message" : "bot-message"}`;
+  const contentDiv = document.createElement("div");
+  contentDiv.className = "message-content";
+  contentDiv.innerHTML = content;
+  messageDiv.appendChild(contentDiv);
+  chatMessages.appendChild(messageDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function showTypingIndicator() {
+  typingIndicator.style.display = "flex";
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function hideTypingIndicator() {
+  typingIndicator.style.display = "none";
+}
+
+function sendMessage() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    addMessage(message, true);
+    chatInput.value = "";
+    sendBtn.disabled = true;
+    sendBtn.textContent = "Sending...";
+
+    showTypingIndicator();
+
+    if (quizBtn.dataset.active === "true") {
+        fetch("/quiz/answer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ answer: message }),
+        })
+        .then((res) => res.json())
+        .then((data) => {
+            if (data.all_results) {
+                if(data.feedback) addMessage(`<b>Final Feedback:</b><br>${data.feedback}`);
+                if(data.message) addMessage(data.message);
+
+                let resultsHtml = '<h3>📜 Detailed Results</h3>';
+                data.all_results.forEach(item => {
+                    if (item.is_correct !== undefined) {
+                        const resultClass = item.is_correct ? 'correct' : 'incorrect';
+                        resultsHtml += `
+                            <style>
+                                .result-item { border-left: 4px solid #555; padding-left: 10px; margin-bottom: 12px; }
+                                .result-item.correct { border-left-color: #28a745; }
+                                .result-item.incorrect { border-left-color: #dc3545; }
+                            </style>
+                            <div class="result-item ${resultClass}">
+                                <p><strong>Q:</strong> ${item.question}</p>
+                                <p>Your Answer: ${item.your_answer}</p>
+                                <p>Correct Answer: ${item.correct_answer}</p>
+                                <strong>Result: ${item.is_correct ? '✅ Correct' : '❌ Incorrect'}</strong>
+                            </div>
+                        `;
+                    }
+                    else if (item.evaluation) {
+                         resultsHtml += `
+                            <div class="result-item">
+                                <p><strong>Theory Q:</strong> ${item.question}</p>
+                                <p><strong>Feedback:</strong> ${item.evaluation}</p>
+                            </div>
+                        `;
+                    }
+                });
+                addMessage(resultsHtml);
+
+                quizBtn.dataset.active = "false";
+            
+            } else {
+                if (data.result && data.result.is_correct !== undefined) {
+                    const feedbackMsg = data.result.is_correct ? '✅ Correct!' : `❌ Incorrect. The right answer was <strong>${data.result.correct_answer}</strong>.`;
+                    addMessage(feedbackMsg);
+                }
+                 if(data.message) addMessage(data.message);
+                 if (data.feedback) addMessage(`<b>Feedback:</b><br>${data.feedback}`);
+
+                if (data.next_question) {
+                     if (data.options) {
+                         addMessage(`<b>Next Question:</b> ${data.next_question}<br><i>Options: ${data.options.join(", ")}</i>`);
+                     } else {
+                         addMessage(`<b>Next Theory Question:</b> ${data.next_question}`);
+                     }
+                }
+            }
+        })
+        .catch((err) => addMessage("Error: " + err))
+        .finally(() => {
+            hideTypingIndicator();
+            sendBtn.disabled = false;
+            sendBtn.textContent = "Send";
+        });
+    } else {
+        fetch("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: message }),
+        })
+        .then((response) => response.json())
+        .then((data) => {
+            if (data.response) {
+                addMessage(data.response);
+            } else {
+                addMessage("Sorry, I encountered an error. Please try again.");
+            }
+        })
+        .catch((error) => {
+            console.error("Error:", error);
+            addMessage("Sorry, I encountered an error. Please try again.");
+        })
+        .finally(() => {
+            hideTypingIndicator();
+            sendBtn.disabled = false;
+            sendBtn.textContent = "Send";
+        });
+    }
+}
+
+function summarizePDF() {
+  addMessage("Summarize this PDF", true);
+  summarizeBtn.disabled = true;
+  summarizeBtn.textContent = "Summarizing...";
+  showTypingIndicator();
+  fetch("/summarize", { method: "POST", headers: { "Content-Type": "application/json" }})
+    .then((res) => res.json())
+    .then((data) => addMessage(data.response || "Error while summarizing."))
+    .catch((err) => addMessage("Error: " + err))
+    .finally(() => {
+      hideTypingIndicator();
+      summarizeBtn.disabled = false;
+      summarizeBtn.textContent = "📄 Summarize PDF";
+    });
+}
+
+function mindmap() {
+  addMessage("Create a Mindmap for this PDF", true);
+  mindmapBtn.disabled = true;
+  mindmapBtn.textContent = "Generating..";
+  showTypingIndicator();
+  fetch("/mindmap", { method: "POST", headers: { "Content-Type": "application/json" }})
+    .then((res) => res.json())
+    .then((data) => addMessage(data.response || "Error creating Mind Map."))
+    .catch((err) => addMessage("Error: " + err))
+    .finally(() => {
+      hideTypingIndicator();
+      mindmapBtn.disabled = false;
+      mindmapBtn.textContent = "🧩 Mind Map";
+    });
+}
+
+function startQuiz() {
+  addMessage("Starting Quiz...", true);
+  quizBtn.disabled = true;
+  quizBtn.textContent = "Starting...";
+  showTypingIndicator();
+  fetch("/quiz/start", { method: "POST", headers: { "Content-Type": "application/json" }})
+    .then((res) => res.json())
+    .then((data) => {
+      if (data.question) {
+        quizBtn.dataset.active = "true";
+        addMessage(`<b>First Question:</b> ${data.question} <br>Options: ${data.options.join(", ")}`);
+      } else {
+        addMessage("Error starting quiz.");
+      }
+    })
+    .catch((err) => addMessage("Error: " + err))
+    .finally(() => {
+      hideTypingIndicator();
+      quizBtn.disabled = false;
+      quizBtn.textContent = "❓ Start Quiz";
+    });
+}
+
+function showYouTubeSearch() {
+  youtubeSearch.style.display = "block";
+  youtubeInput.focus();
+}
+function hideYouTubeSearch() {
+  youtubeSearch.style.display = "none";
+  youtubeInput.value = "";
+}
+function searchYouTube() {
+  const searchQuery = youtubeInput.value.trim();
+  if (!searchQuery) return;
+  addMessage(`Searching YouTube for: ${searchQuery}`, true);
+  fetch("/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: `search youtube for: ${searchQuery}` }),
+  })
+    .then((res) => res.json())
+    .then((data) => addMessage(data.response || "YouTube search opened in browser!"))
+    .catch(() => addMessage("YouTube search opened in browser!"));
+  hideYouTubeSearch();
+}
+
+sendBtn.addEventListener("click", sendMessage);
+summarizeBtn.addEventListener("click", summarizePDF);
+mindmapBtn.addEventListener("click", mindmap);
+quizBtn.addEventListener("click", startQuiz);
+youtubeBtn.addEventListener("click", showYouTubeSearch);
+searchBtn.addEventListener("click", searchYouTube);
+cancelBtn.addEventListener("click", hideYouTubeSearch);
+chatInput.addEventListener("keypress", function (e) {
+  if (e.key === "Enter") {
+    sendMessage();
+  }
+});
+youtubeInput.addEventListener("keypress", function (e) {
+  if (e.key === "Enter") searchYouTube();
+  if (e.key === "Escape") hideYouTubeSearch();
+});
+
+</script>
+  </body>
+</html>
