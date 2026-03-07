@@ -26,7 +26,7 @@ app.secret_key = "nullisgreat"
 
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel("gemini-2.5-flash", generation_config={
+model = genai.GenerativeModel("gemini-1.5-flash", generation_config={
     "temperature": 0.7,
     "max_output_tokens": 20480
 })
@@ -554,7 +554,10 @@ USER QUESTION:
 
     try:
         response = model.generate_content(prompt)
-        ai_response = "".join([p.text for p in response.candidates[0].content.parts])
+        if not response.candidates:
+            return jsonify({"error": "AI failed to generate a response (empty candidates)."}), 500
+            
+        ai_response = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
         return jsonify({"response": ai_response, "is_html": True})
     except Exception as e:
         print(e)
@@ -602,7 +605,10 @@ instead of numbers use bullet pts"""
 
     try:
         response = model.generate_content(prompt)
-        ai_response = "".join([p.text for p in response.candidates[0].content.parts])
+        if not response.candidates:
+            return jsonify({"error": "AI failed to generate a response (empty candidates)."}), 500
+            
+        ai_response = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
         return jsonify({"response": ai_response, "is_html": True})
     except Exception as e:
         return jsonify({"error": f"Error generating summary: {str(e)}"}), 500
@@ -651,7 +657,11 @@ def start_quiz():
 
     try:
         response = model.generate_content(prompt)
-        raw_text = response.candidates[0].content.parts[0].text.strip()
+        if not response.candidates:
+            return jsonify({"error": "AI failed to generate a quiz (empty candidates)."}), 500
+            
+        raw_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+        raw_text = raw_text.strip()
 
         if raw_text.startswith("```"):
             raw_text = raw_text.strip("`")
@@ -751,7 +761,10 @@ def quiz_answer():
         Return clean bullet points only.
         """
         response = model.generate_content(eval_prompt)
-        feedback = response.candidates[0].content.parts[0].text
+        if not response.candidates:
+            feedback = "AI failed to evaluate the answer (empty candidates)."
+        else:
+            feedback = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
 
         quiz["answers"].append({
             "question": question,
