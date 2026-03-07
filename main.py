@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, session, redirect, url_for, jsonify, Response
+from flask import Flask, send_from_directory, request, send_file, session, redirect, url_for, jsonify, Response
 import os
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file
@@ -15,7 +15,9 @@ import PyPDF2
 import base64
 from io import BytesIO
 
-app = Flask(__name__)
+# Serve React build from frontend/dist
+REACT_BUILD = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
+app = Flask(__name__, static_folder=REACT_BUILD, static_url_path='')
 
 # In-memory storage for Vercel compatibility (no disk writes needed)
 app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024  # 4MB max (Vercel serverless limit)
@@ -33,19 +35,20 @@ model = genai.GenerativeModel("gemini-2.5-flash", generation_config={
 uploaded_pdf_text = {}  # Store extracted text
 uploaded_pdf_data = {}  # Store PDF bytes for viewer
 
-@app.route('/')
-def index():
-    return render_template("index.html")
-
-
-@app.route('/pdfinput')
-def pdfinput():
-    return render_template("pdfinput.html")
+# ── React SPA routes ──────────────────────────────────────────────────────────
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react(path):
+    # Let API routes pass through (they are defined below and take priority)
+    full = os.path.join(REACT_BUILD, path)
+    if path and os.path.exists(full):
+        return send_from_directory(REACT_BUILD, path)
+    return send_from_directory(REACT_BUILD, 'index.html')
 
 
 @app.route('/wikipedia')
 def wikipedia():
-    return render_template("wikipedia.html")
+    return jsonify({"error": "Wikipedia feature not available in React UI"}), 404
 
 
 @app.route('/wikipedia/search', methods=['POST'])
