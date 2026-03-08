@@ -107,6 +107,7 @@
         <div class="chat-input-container">
           <div class="button-row">
             <button id="summarizeBtn" class="summarize-btn">📄 Summarize PDF</button>
+            <button id="summarizeMultiBtn" class="summarize-btn" style="display:none; background: linear-gradient(135deg, #a855f7, #6366f1);">📚 Summarize All PDFs</button>
             <button id="mindmapBtn" class="mindmap-btn">🧩 Mind Map</button>
             <button id="quizBtn" class="quiz-btn">❓ Start Quiz</button>
             <button id="youtubeBtn" class="youtube-btn">🎥 YouTube Search</button>
@@ -352,6 +353,14 @@ window.addEventListener("load", function () {
         document.getElementById("pdfFrame").src = "/pdf/" + data.filename;
       } else {
         window.location.href = "/";
+        return;
+      }
+      // Show multi-summarize button when 2+ PDFs are loaded
+      const multiFilenames = data.multi_pdf_filenames || [];
+      if (multiFilenames.length >= 2) {
+        const multiBtn = document.getElementById("summarizeMultiBtn");
+        multiBtn.style.display = "inline-flex";
+        multiBtn.title = `Summarize all ${multiFilenames.length} PDFs: ${multiFilenames.join(", ")}`;
       }
     })
     .catch((error) => {
@@ -363,6 +372,7 @@ window.addEventListener("load", function () {
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
 const summarizeBtn = document.getElementById("summarizeBtn");
+const summarizeMultiBtn = document.getElementById("summarizeMultiBtn");
 const mindmapBtn = document.getElementById("mindmapBtn");
 const quizBtn = document.getElementById("quizBtn");
 const youtubeBtn = document.getElementById("youtubeBtn");
@@ -503,12 +513,28 @@ function summarizePDF() {
   showTypingIndicator();
   fetch("/summarize", { method: "POST", headers: { "Content-Type": "application/json" }})
     .then((res) => res.json())
-    .then((data) => addMessage(data.response || "Error while summarizing."))
+    .then((data) => addMessage(data.response || data.error || "Error while summarizing."))
     .catch((err) => addMessage("Error: " + err))
     .finally(() => {
       hideTypingIndicator();
       summarizeBtn.disabled = false;
       summarizeBtn.textContent = "📄 Summarize PDF";
+    });
+}
+
+function summarizeMultiplePDFs() {
+  addMessage("📚 Summarize all uploaded PDFs together", true);
+  summarizeMultiBtn.disabled = true;
+  summarizeMultiBtn.textContent = "Summarizing...";
+  showTypingIndicator();
+  fetch("/summarize-multiple", { method: "POST", headers: { "Content-Type": "application/json" }})
+    .then((res) => res.json())
+    .then((data) => addMessage(data.response || data.error || "Error while summarizing."))
+    .catch((err) => addMessage("Error: " + err))
+    .finally(() => {
+      hideTypingIndicator();
+      summarizeMultiBtn.disabled = false;
+      summarizeMultiBtn.textContent = "📚 Summarize All PDFs";
     });
 }
 
@@ -576,6 +602,7 @@ function searchYouTube() {
 
 sendBtn.addEventListener("click", sendMessage);
 summarizeBtn.addEventListener("click", summarizePDF);
+summarizeMultiBtn.addEventListener("click", summarizeMultiplePDFs);
 mindmapBtn.addEventListener("click", mindmap);
 quizBtn.addEventListener("click", startQuiz);
 youtubeBtn.addEventListener("click", showYouTubeSearch);

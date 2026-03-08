@@ -8,6 +8,7 @@ export default function ViewerPage() {
     const [input, setInput] = useState('')
     const [loading, setLoading] = useState(false)
     const [pdfFilename, setPdfFilename] = useState('')
+    const [multiFilenames, setMultiFilenames] = useState([])
     const [quizActive, setQuizActive] = useState(false)
     const [showYT, setShowYT] = useState(false)
     const [ytInput, setYtInput] = useState('')
@@ -19,8 +20,10 @@ export default function ViewerPage() {
         fetch('/get-pdf-info')
             .then(r => r.json())
             .then(d => {
-                if (d.filename) setPdfFilename(d.filename)
-                else navigate('/')
+                if (d.filename) {
+                    setPdfFilename(d.filename)
+                    setMultiFilenames(d.multi_pdf_filenames || [])
+                } else navigate('/')
             })
             .catch(() => navigate('/'))
     }, [])
@@ -100,8 +103,19 @@ export default function ViewerPage() {
         try {
             const res = await fetch('/summarize', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
             const data = await res.json()
-            addMessage('bot', data.response || 'Error summarizing.')
+            addMessage('bot', data.response || data.error || 'Error summarizing.')
         } catch { addMessage('bot', 'Error summarizing.') }
+        finally { setLoading(false) }
+    }
+
+    const handleSummarizeAll = async () => {
+        addMessage('user', `📚 Summarise all ${multiFilenames.length} PDFs together`)
+        setLoading(true)
+        try {
+            const res = await fetch('/summarize-multiple', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            const data = await res.json()
+            addMessage('bot', data.response || data.error || 'Error summarizing.')
+        } catch { addMessage('bot', 'Error summarizing all PDFs.') }
         finally { setLoading(false) }
     }
 
@@ -195,6 +209,16 @@ export default function ViewerPage() {
                         <button className="action-btn" onClick={handleSummarize} disabled={loading}>
                             📄 Summarize
                         </button>
+                        {multiFilenames.length >= 2 && (
+                            <button
+                                className="action-btn action-btn-multi"
+                                onClick={handleSummarizeAll}
+                                disabled={loading}
+                                title={`Summarize all ${multiFilenames.length} PDFs: ${multiFilenames.join(', ')}`}
+                            >
+                                📚 Summarise All ({multiFilenames.length})
+                            </button>
+                        )}
                         <button className="action-btn" onClick={handleMindmap} disabled={loading}>
                             🧩 Mind Map
                         </button>

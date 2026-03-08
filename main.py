@@ -1,4 +1,4 @@
-from flask import Flask, send_from_directory, request, send_file, session, redirect, url_for, jsonify, Response
+from flask import Flask, send_from_directory, request, send_file, session, redirect, url_for, jsonify, Response, render_template
 import os
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file
@@ -23,7 +23,7 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 ALLOWED_EXTENSIONS = {'pdf'}
 app.secret_key = "nullisgreat"   
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+genai.configure(api_key="AIzaSyD8AmRNv-Q5uS7BS8CSqais4XPFEzTjslo")
 
 model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
     "temperature": 0.7,
@@ -41,8 +41,15 @@ def serve_react(path):
     # Let API routes pass through (they are defined below and take priority)
     full = os.path.join(REACT_BUILD, path)
     if path and os.path.exists(full):
-        return send_from_directory(REACT_BUILD, path)
-    return send_from_directory(REACT_BUILD, 'index.html')
+        response = send_from_directory(REACT_BUILD, path)
+    else:
+        response = send_from_directory(REACT_BUILD, 'index.html')
+    
+    # Disable caching for React build files so updates are seen immediately
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/viewer')
 def viewer():
@@ -53,9 +60,13 @@ def viewer():
 @app.route('/get-pdf-info')
 def get_pdf_info():
     filename = session.get('pdf_filename')
-    if not filename:
+    multi_filenames = session.get('multi_pdf_filenames', [])
+    if not filename and not multi_filenames:
         return jsonify({"error": "No PDF loaded"}), 400
-    return jsonify({"filename": filename})
+    return jsonify({
+        "filename": filename,
+        "multi_pdf_filenames": multi_filenames
+    })
 
 
 @app.route('/upload-pdf', methods=['POST'])
@@ -111,6 +122,145 @@ def upload_pdf():
     except Exception as e:
         print(f"Upload error: {str(e)}")
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
+
+
+@app.route('/upload-multiple-pdfs', methods=['POST'])
+def upload_multiple_pdfs():
+    """Upload up to 5 PDFs at once for combined analysis."""
+    try:
+        files = request.files.getlist('pdf_files[]')
+        if not files or all(f.filename == '' for f in files):
+            return jsonify({"error": "No files selected"}), 400
+
+        MAX_FILES = 5
+        if len(files) > MAX_FILES:
+            return jsonify({"error": f"Maximum {MAX_FILES} PDFs allowed at once."}), 400
+
+        uploaded = []
+        filenames = []
+
+        for file in files:
+            if file.filename == '':
+                continue
+            if not allowed_file(file.filename):
+                return jsonify({"error": f"'{file.filename}' is not a PDF."}), 400
+
+            filename = secure_filename(file.filename)
+            pdf_bytes = file.read()
+
+            # Store bytes for viewer
+            uploaded_pdf_data[filename] = pdf_bytes
+
+            # Extract text in-memory
+            pdf_text = ""
+            try:
+                pdf_file_obj = BytesIO(pdf_bytes)
+                pdf_reader = PyPDF2.PdfReader(pdf_file_obj)
+                for page in pdf_reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        pdf_text += page_text + "\n"
+            except Exception as e:
+                return jsonify({"error": f"Failed to read '{filename}': {str(e)}"}), 400
+
+            if not pdf_text.strip():
+                return jsonify({"error": f"Could not extract text from '{filename}'. It may be scanned."}), 400
+
+            uploaded_pdf_text[filename] = pdf_text
+            filenames.append(filename)
+            uploaded.append({"filename": filename, "text_length": len(pdf_text)})
+            print(f"Multi-upload: extracted {len(pdf_text)} chars from {filename}")
+
+        if not filenames:
+            return jsonify({"error": "No valid PDFs were processed."}), 400
+
+        # Store multi-pdf list in session; also set the first as the "active" single PDF
+        session['multi_pdf_filenames'] = filenames
+        session['pdf_filename'] = filenames[0]  # so single-PDF features still work on first file
+
+        return jsonify({
+            "success": True,
+            "files": uploaded,
+            "message": f"{len(filenames)} PDF(s) uploaded successfully."
+        })
+
+    except Exception as e:
+        print(f"Multi-upload error: {str(e)}")
+        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
+
+
+@app.route('/summarize-multiple', methods=['POST'])
+def summarize_multiple():
+    """Summarize and synthesize content across multiple uploaded PDFs."""
+    filenames = session.get('multi_pdf_filenames', [])
+    if not filenames:
+        # Fall back to single PDF if multi list is empty
+        single = session.get('pdf_filename', '')
+        if single:
+            filenames = [single]
+        else:
+            return jsonify({"error": "No PDFs loaded"}), 400
+
+    PER_PDF_LIMIT = 30000
+    TOTAL_LIMIT = 80000
+    combined_sections = []
+    total_chars = 0
+
+    for fname in filenames:
+        pdf_text = uploaded_pdf_text.get(fname, '')
+        if not pdf_text:
+            continue
+        chunk = pdf_text[:PER_PDF_LIMIT]
+        if total_chars + len(chunk) > TOTAL_LIMIT:
+            chunk = pdf_text[:max(0, TOTAL_LIMIT - total_chars)]
+        combined_sections.append(f"=== Document: {fname} ===\n{chunk}")
+        total_chars += len(chunk)
+        if total_chars >= TOTAL_LIMIT:
+            break
+
+    if not combined_sections:
+        return jsonify({"error": "PDF text not found. Please re-upload."}), 400
+
+    combined_content = "\n\n".join(combined_sections)
+    doc_count = len(combined_sections)
+    doc_names = ", ".join(filenames[:doc_count])
+
+    prompt = f"""You are a helpful assistant. The user has uploaded {doc_count} PDF document(s): {doc_names}.
+Provide a comprehensive combined HTML summary that synthesizes information across all documents.
+
+DOCUMENTS:
+{combined_content}
+
+STRUCTURE YOUR RESPONSE AS:
+<h3>📚 Combined Summary ({doc_count} Documents)</h3>
+<p>Brief overview of what these documents collectively cover.</p>
+
+<h3>1. Key Topics &amp; Main Points (per document)</h3>
+<ol><li>...</li></ol>
+
+<h3>2. Common Themes &amp; Connections</h3>
+<ol><li>...</li></ol>
+
+<h3>3. Important Findings &amp; Conclusions</h3>
+<ol><li>...</li></ol>
+
+<h3>4. Overall Synthesis</h3>
+<p>...</p>
+
+IMPORTANT OUTPUT RULES:
+- Output valid HTML only (no Markdown, no backslashes, no ``` tags).
+- Use <h3> for section titles, <ol><li> for lists, <strong> for bold, <p> for paragraphs.
+- Be concise yet comprehensive. Use bullet points where suitable.
+- Do NOT include <script> tags or event handlers."""
+
+    try:
+        response = model.generate_content(prompt)
+        if not response.candidates:
+            return jsonify({"error": "AI failed to generate a response (empty candidates)."}), 500
+        ai_response = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        return jsonify({"response": ai_response, "is_html": True})
+    except Exception as e:
+        return jsonify({"error": f"Error generating combined summary: {str(e)}"}), 500
 
 
 @app.route('/pdf/<filename>')
