@@ -63,6 +63,10 @@ function SingleUpload({ navigate }) {
         try {
             const res = await fetch('/upload-pdf', { method: 'POST', body: form, signal: ctrl.signal })
             clearTimeout(tid)
+            if (!res.ok) {
+                const text = await res.text()
+                throw new Error(`Server error (${res.status}): ${text || res.statusText}`)
+            }
             const data = await res.json()
             if (data.success) navigate('/viewer')
             else throw new Error(data.error || 'Upload failed')
@@ -122,7 +126,7 @@ function MultiUpload({ navigate }) {
         const arr = Array.from(fileList).filter(f => f.type === 'application/pdf')
         if (arr.length === 0) { setError('Please select valid PDF files.'); return }
         if (arr.length > 5) { setError('Maximum 5 PDFs allowed at once.'); return }
-        const oversized = arr.filter(f => f.size > 4 * 1024 * 1024)
+        const oversized = arr.filter(f => f.size > 40 * 1024 * 1024)
         if (oversized.length) { setError(`File(s) exceed 4MB: ${oversized.map(f => f.name).join(', ')}`); return }
         setError(''); setFiles(arr)
     }
@@ -132,12 +136,16 @@ function MultiUpload({ navigate }) {
         if (files.length === 0) return
         setLoading(true); setError('')
         const form = new FormData()
-        files.forEach(f => form.append('pdf_files[]', f))
+        files.forEach(f => form.append('pdf_files', f))
         const ctrl = new AbortController()
         const tid = setTimeout(() => ctrl.abort(), 180000)
         try {
             const res = await fetch('/upload-multiple-pdfs', { method: 'POST', body: form, signal: ctrl.signal })
             clearTimeout(tid)
+            if (!res.ok) {
+                const text = await res.text()
+                throw new Error(`Server error (${res.status}): ${text || res.statusText}`)
+            }
             const data = await res.json()
             if (data.success) navigate('/viewer')
             else throw new Error(data.error || 'Upload failed')

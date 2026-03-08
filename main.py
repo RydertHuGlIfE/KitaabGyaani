@@ -23,7 +23,7 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 ALLOWED_EXTENSIONS = {'pdf'}
 app.secret_key = "nullisgreat"   
 
-genai.configure(api_key="AIzaSyD8AmRNv-Q5uS7BS8CSqais4XPFEzTjslo")
+genai.configure(api_key="AIzaSyASwal30a_rAr2Grme0FoKR3mFPdzGXsxM")
 
 model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
     "temperature": 0.7,
@@ -128,7 +128,7 @@ def upload_pdf():
 def upload_multiple_pdfs():
     """Upload up to 5 PDFs at once for combined analysis."""
     try:
-        files = request.files.getlist('pdf_files[]')
+        files = request.files.getlist('pdf_files')
         if not files or all(f.filename == '' for f in files):
             return jsonify({"error": "No files selected"}), 400
 
@@ -178,6 +178,7 @@ def upload_multiple_pdfs():
         session['multi_pdf_filenames'] = filenames
         session['pdf_filename'] = filenames[0]  # so single-PDF features still work on first file
 
+
         return jsonify({
             "success": True,
             "files": uploaded,
@@ -189,78 +190,30 @@ def upload_multiple_pdfs():
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 
-@app.route('/summarize-multiple', methods=['POST'])
-def summarize_multiple():
-    """Summarize and synthesize content across multiple uploaded PDFs."""
+def get_combined_pdf_content(limit=60000):
+    """Aggregates text from all uploaded PDFs in the session."""
     filenames = session.get('multi_pdf_filenames', [])
     if not filenames:
-        # Fall back to single PDF if multi list is empty
         single = session.get('pdf_filename', '')
-        if single:
-            filenames = [single]
-        else:
-            return jsonify({"error": "No PDFs loaded"}), 400
+        filenames = [single] if single else []
 
-    PER_PDF_LIMIT = 30000
-    TOTAL_LIMIT = 80000
+    if not filenames:
+        return None, 0
+
     combined_sections = []
     total_chars = 0
+    per_file_limit = limit // max(1, len(filenames))
 
     for fname in filenames:
-        pdf_text = uploaded_pdf_text.get(fname, '')
-        if not pdf_text:
-            continue
-        chunk = pdf_text[:PER_PDF_LIMIT]
-        if total_chars + len(chunk) > TOTAL_LIMIT:
-            chunk = pdf_text[:max(0, TOTAL_LIMIT - total_chars)]
-        combined_sections.append(f"=== Document: {fname} ===\n{chunk}")
+        text = uploaded_pdf_text.get(fname, '')
+        if not text: continue
+        
+        chunk = text[:per_file_limit]
+        combined_sections.append(f"--- DOCUMENT: {fname} ---\n{chunk}")
         total_chars += len(chunk)
-        if total_chars >= TOTAL_LIMIT:
-            break
-
-    if not combined_sections:
-        return jsonify({"error": "PDF text not found. Please re-upload."}), 400
-
-    combined_content = "\n\n".join(combined_sections)
-    doc_count = len(combined_sections)
-    doc_names = ", ".join(filenames[:doc_count])
-
-    prompt = f"""You are a helpful assistant. The user has uploaded {doc_count} PDF document(s): {doc_names}.
-Provide a comprehensive combined HTML summary that synthesizes information across all documents.
-
-DOCUMENTS:
-{combined_content}
-
-STRUCTURE YOUR RESPONSE AS:
-<h3>📚 Combined Summary ({doc_count} Documents)</h3>
-<p>Brief overview of what these documents collectively cover.</p>
-
-<h3>1. Key Topics &amp; Main Points (per document)</h3>
-<ol><li>...</li></ol>
-
-<h3>2. Common Themes &amp; Connections</h3>
-<ol><li>...</li></ol>
-
-<h3>3. Important Findings &amp; Conclusions</h3>
-<ol><li>...</li></ol>
-
-<h3>4. Overall Synthesis</h3>
-<p>...</p>
-
-IMPORTANT OUTPUT RULES:
-- Output valid HTML only (no Markdown, no backslashes, no ``` tags).
-- Use <h3> for section titles, <ol><li> for lists, <strong> for bold, <p> for paragraphs.
-- Be concise yet comprehensive. Use bullet points where suitable.
-- Do NOT include <script> tags or event handlers."""
-
-    try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate a response (empty candidates)."}), 500
-        ai_response = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
-        return jsonify({"response": ai_response, "is_html": True})
-    except Exception as e:
-        return jsonify({"error": f"Error generating combined summary: {str(e)}"}), 500
+        if total_chars >= limit: break
+        
+    return "\n\n".join(combined_sections), len(filenames)
 
 
 @app.route('/pdf/<filename>')
@@ -275,46 +228,41 @@ def serve_pdf(filename):
         )
     return jsonify({"error": "PDF not found"}), 404
 
+@app.route('/switch-pdf', methods=['POST'])
+def switch_pdf():
+    data = request.get_json()
+    filename = data.get('filename')
+    if not filename:
+        return jsonify({"error": "No filename provided"}), 400
+    
+    if filename not in uploaded_pdf_text:
+        return jsonify({"error": "PDF not found in current session"}), 404
+        
+    session['pdf_filename'] = filename
+    return jsonify({"success": True})
+
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.get_json()
     user_message = data.get('message', '')
-    filename = session.get('pdf_filename', '')
-
-    if not filename:
-        return jsonify({"error": "No PDF loaded"}), 400
     
-    # Get the extracted PDF text
-    pdf_text = uploaded_pdf_text.get(filename)
-    if not pdf_text:
-        return jsonify({"error": "PDF text not found. Please re-upload."}), 400
-
-    # Limit text to avoid token limits (first 50000 chars ~ 12500 tokens)
-    pdf_content = pdf_text[:50000]
+    pdf_content, doc_count = get_combined_pdf_content()
+    if not pdf_content:
+        return jsonify({"error": "No PDF content found. Please re-upload."}), 400
 
     prompt = f"""
-You are a helpful assistant. Answer questions based on the following PDF content.
+You are a helpful AI assistant. Answer questions based on the provided PDF content.
+The user has uploaded {doc_count} document(s). Analyze them comprehensively.
 
 PDF CONTENT:
 {pdf_content}
 
 IMPORTANT OUTPUT RULES:
-- Output valid HTML only (no Markdown, no backslashes) but dont mention html in the text and neither use ```.
-- Use <h3> for section titles.
-- Use <ol><li> for numbered lists.
-- Use <strong> for bold.
-- Use <p> for paragraphs.
-- Do not include <script> or event handlers.
-- use "  " this spacing for the bullet points and = this for subpoints
-While Making bullet points give a space after heading eg 
-try to give most answers in bullet points unless asked...
-try to be as consice and give a short answer as well unless asked in detail 
-and dont use ``` or html words in the response and make it look clean
-instead of numbers use bullet points
-Answer should be shortest possible yet provide adequate content
-
-if there is casual responses like hello or thank you in USER QUESTION: 
-ignore PDF CONTENT and just respond accordingly for hi just respond like a normal chatbot
+- Output valid HTML only (no Markdown, no backslash).
+- Do NOT use ``` or mention 'html'.
+- Use <h3> for titles, <ol><li> for lists, <strong> for bold, <p> for paragraphs.
+- If multiple documents are present, specify which document you are referring to when answering.
+- Answer as concisely as possible.
 
 USER QUESTION:
 {user_message}"""
@@ -339,21 +287,12 @@ USER QUESTION:
 
 @app.route('/summarize', methods=['POST'])
 def summarize():
-    filename = session.get('pdf_filename', '')
-
-    if not filename:
-        return jsonify({"error": "No PDF loaded"}), 400
-    
-    # Get the extracted PDF text
-    pdf_text = uploaded_pdf_text.get(filename)
-    if not pdf_text:
-        return jsonify({"error": "PDF text not found. Please re-upload."}), 400
-
-    # Limit text to avoid token limits
-    pdf_content = pdf_text[:50000]
+    pdf_content, doc_count = get_combined_pdf_content()
+    if not pdf_content:
+        return jsonify({"error": "No PDF content found."}), 400
 
     prompt = f"""
-You are a helpful assistant. Provide an HTML-only summary of this PDF document.
+You are a helpful assistant. Provide a comprehensive summary of these {doc_count} PDF document(s).
 
 PDF CONTENT:
 {pdf_content}
@@ -368,13 +307,11 @@ STRUCTURE:
 <h3>3. Significant data or statistics</h3>
 <ol><li>...</li></ol>
 
-<h3>4. Overall theme and purpose</h3>
+<h3>4. Overall synthesis across documents</h3>
 <p>...</p>
 
-try to give most answers in bullet points unless asked...
-try to be as consice and give a short answer as well unless asked in detail 
-and dont use ``` or html words in the response and make it look clean
-instead of numbers use bullet pts"""
+Output valid HTML only using <h3>, <ol>, <li>, <strong>, <p>. Be concise.
+"""
 
     try:
         response = model.generate_content(prompt)
@@ -389,26 +326,19 @@ instead of numbers use bullet pts"""
 
 @app.route('/quiz/start', methods=['POST'])
 def start_quiz():
-    filename = session.get('pdf_filename', '')
-
-    if not filename:
-        return jsonify({"error": "No PDF Loaded"}), 400
-
-    # Get the extracted PDF text
-    pdf_text = uploaded_pdf_text.get(filename)
-    if not pdf_text:
-        return jsonify({"error": "PDF text not found. Please re-upload."}), 400
-
-    # Limit text to avoid token limits
-    pdf_content = pdf_text[:50000]
+    pdf_content, doc_count = get_combined_pdf_content()
+    if not pdf_content:
+        return jsonify({"error": "No PDF content found."}), 400
 
     seed = random.randint(1000, 9999)
-
     prompt = f"""
-    You are a quiz generator. Create questions based on this PDF content.
+    You are a quiz generator. Create questions based on these {doc_count} document(s).
 
     PDF CONTENT:
     {pdf_content}
+
+    Use seed {seed}.
+    Generate 5 MCQs and 5 theoretical questions based on the content of all documents.
 
     Use the unique identifier **{seed}** to ensure variety.
 
@@ -576,38 +506,22 @@ def quiz_answer():
 
 @app.route("/mindmap", methods=['POST'])
 def mindmap():
-    filename = session.get('pdf_filename', '')
-    
-    if not filename:
+    pdf_content, doc_count = get_combined_pdf_content(limit=40000)
+    if not pdf_content:
         return jsonify({"error": "No PDF loaded"}), 400
     
-    # Get the extracted PDF text
-    pdf_text = uploaded_pdf_text.get(filename)
-    if not pdf_text:
-        return jsonify({"error": "PDF text not found. Please re-upload."}), 400
-    
-    # Limit text to avoid token limits
-    pdf_content = pdf_text[:50000]
-    
-    prompt = f"""You are a highly sophisticated AI. Create the best mindmap based on this PDF content.
+    prompt = f"""You are a sophisticated AI. Create a detailed mindmap visual breakdown for these {doc_count} document(s).
     
     PDF CONTENT:
     {pdf_content}
     
-    Anyone that lays eyes upon this piece should say I need this to study for my exam. 
-    Just say "Generating Mindmap:" and create the mindmap.
-    Everything from the PDF should be covered, dont leave anything.
+    Structure the mindmap to cover all key aspects of all uploaded files.
     
     IMPORTANT OUTPUT RULES:
-    - Output valid HTML only (no Markdown, no backslashes) but dont mention html in the text and neither use ```.
-    - Use <h3> for section titles.
-    - Use <ol><li> for numbered lists.
-    - Use <strong> for bold.
-    - Use <p> for paragraphs.
-    - Do not include <script> or event handlers.
-    - use "  " this spacing for the bullet points and = this for subpoints
-    - dont use ``` html tags
-    Create the mindmap using bullet points or otherwise as suitable."""
+    - Output valid HTML only (no Markdown, no backslashes).
+    - Use <h3> for titles, <ol><li> for lists, <strong> for bold.
+    - Be extremely comprehensive.
+    """
     
     try:
         response = model.generate_content(prompt)

@@ -108,17 +108,6 @@ export default function ViewerPage() {
         finally { setLoading(false) }
     }
 
-    const handleSummarizeAll = async () => {
-        addMessage('user', `📚 Summarise all ${multiFilenames.length} PDFs together`)
-        setLoading(true)
-        try {
-            const res = await fetch('/summarize-multiple', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-            const data = await res.json()
-            addMessage('bot', data.response || data.error || 'Error summarizing.')
-        } catch { addMessage('bot', 'Error summarizing all PDFs.') }
-        finally { setLoading(false) }
-    }
-
     const handleMindmap = async () => {
         addMessage('user', 'Create a mind map for this PDF')
         setLoading(true)
@@ -165,6 +154,29 @@ export default function ViewerPage() {
         finally { setLoading(false) }
     }
 
+    const handleSwitchPdf = async (filename) => {
+        if (filename === pdfFilename || loading) return
+        setLoading(true)
+        try {
+            const res = await fetch('/switch-pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename })
+            })
+            const data = await res.json()
+            if (data.success) {
+                setPdfFilename(filename)
+                addMessage('bot', `📂 Switched to: <strong>${filename}</strong>. I'm ready to answer questions about this document.`)
+            } else {
+                throw new Error(data.error || 'Switch failed')
+            }
+        } catch (err) {
+            addMessage('bot', `Error switching PDF: ${err.message}`)
+        } finally {
+            setLoading(false)
+        }
+    }
+
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
@@ -175,6 +187,25 @@ export default function ViewerPage() {
     return (
         <div className="viewer-page">
             <div className="viewer-layout">
+                {/* Sidebar - only show if multiple PDFs */}
+                {multiFilenames.length > 0 && (
+                    <div className="viewer-sidebar">
+                        <div className="sidebar-header">Documents</div>
+                        <div className="sidebar-list">
+                            {multiFilenames.map((fname, idx) => (
+                                <div
+                                    key={idx}
+                                    className={`sidebar-item${pdfFilename === fname ? ' active' : ''}`}
+                                    onClick={() => handleSwitchPdf(fname)}
+                                >
+                                    <span className="sidebar-item-icon">📄</span>
+                                    <span className="sidebar-item-name">{fname}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* PDF Panel */}
                 <div className="pdf-panel">
                     <div className="pdf-panel-header">
@@ -193,6 +224,7 @@ export default function ViewerPage() {
                             className="pdf-iframe"
                             src={`/pdf/${pdfFilename}`}
                             title="PDF Viewer"
+                            key={pdfFilename} // Important: force iframe reload on src change
                         />
                     )}
                 </div>
@@ -201,29 +233,23 @@ export default function ViewerPage() {
                 <div className="chat-panel">
                     <div className="chat-panel-header">
                         <div className="chat-panel-title">🤖 AI Assistant</div>
-                        <div className="chat-panel-sub">Ask anything about your PDF</div>
+                        <div className="chat-panel-sub">
+                            {multiFilenames.length > 1
+                                ? `Analyzing all ${multiFilenames.length} PDFs`
+                                : 'Ask anything about your PDF'}
+                        </div>
                     </div>
 
                     {/* Action Buttons */}
                     <div className="action-buttons">
                         <button className="action-btn" onClick={handleSummarize} disabled={loading}>
-                            📄 Summarize
+                            📄 {multiFilenames.length > 1 ? 'Summarize All' : 'Summarize'}
                         </button>
-                        {multiFilenames.length >= 2 && (
-                            <button
-                                className="action-btn action-btn-multi"
-                                onClick={handleSummarizeAll}
-                                disabled={loading}
-                                title={`Summarize all ${multiFilenames.length} PDFs: ${multiFilenames.join(', ')}`}
-                            >
-                                📚 Summarise All ({multiFilenames.length})
-                            </button>
-                        )}
                         <button className="action-btn" onClick={handleMindmap} disabled={loading}>
-                            🧩 Mind Map
+                            🧩 {multiFilenames.length > 1 ? 'Mind Map (All)' : 'Mind Map'}
                         </button>
                         <button className="action-btn" onClick={handleStartQuiz} disabled={loading}>
-                            ❓ Quiz
+                            ❓ {multiFilenames.length > 1 ? 'Quiz All' : 'Quiz'}
                         </button>
                         <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
                             🎥 YouTube
