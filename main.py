@@ -23,7 +23,7 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 ALLOWED_EXTENSIONS = {'pdf'}
 app.secret_key = "nullisgreat"   
 
-genai.configure(api_key="AIzaSyASwal30a_rAr2Grme0FoKR3mFPdzGXsxM")
+genai.configure(api_key="NOO")
 
 model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
     "temperature": 0.7,
