@@ -4,7 +4,7 @@ export default function Header() {
             <div className="header-logo">
                 <span className="logo-icon">📖</span>
                 <div>
-                    <div className="logo-name">KitaabGenie</div>
+                    <div className="logo-name">KitaabGyaani</div>
                     <div className="logo-sub">AI Study Assistant</div>
                 </div>
             </div>
