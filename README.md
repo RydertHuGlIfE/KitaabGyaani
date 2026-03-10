@@ -23,7 +23,7 @@ An AI-powered PDF analyzer that helps you interact with your documents like neve
 On your machine where the LLM is running, install Ollama and run:
 
 ```bash
-export OLLAMA_HOST=Configure your own 
+export OLLAMA_HOST=0.0.0.0
 ollama serve
 ollama run llama3
 ```
