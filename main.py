@@ -2,8 +2,6 @@ from flask import Flask, send_from_directory, request, send_file, session, redir
 import os
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file
-
-import google.generativeai as genai
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 import webbrowser
@@ -15,6 +13,17 @@ import PyPDF2
 import base64
 from io import BytesIO
 
+import requests
+REMOTE_SERVER_URL = "http://<REMOTE_IP>:11434/api/generate"
+def get_local_model_response(prompt):
+    payload = {
+        "model": "llama3",
+        "prompt": prompt,
+        "stream": False
+    }
+    response = requests.post(REMOTE_SERVER_URL, json=payload)
+    return response.json()['response']
+
 # Serve React build from frontend/dist
 REACT_BUILD = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
 app = Flask(__name__, static_folder=REACT_BUILD, static_url_path='')
@@ -22,13 +31,6 @@ app = Flask(__name__, static_folder=REACT_BUILD, static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024 
 ALLOWED_EXTENSIONS = {'pdf'}
 app.secret_key = "nullisgreat"   
-
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-
-model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
-    "temperature": 0.7,
-    "max_output_tokens": 20480
-})
 
 # In-memory storage - no files saved to disk (Vercel compatible)
 uploaded_pdf_text = {} 
@@ -272,11 +274,7 @@ USER QUESTION:
         return jsonify({"response": f"<p>Opened YouTube search for <strong>{topic}</strong> in your browser! 🎥</p>", "is_html": True})
 
     try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate a response (empty candidates)."}), 500
-            
-        ai_response = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        ai_response = get_local_model_response(prompt)
         return jsonify({"response": ai_response, "is_html": True})
     except Exception as e:
         print(e)
@@ -312,11 +310,7 @@ Output valid HTML only using <h3>, <ol>, <li>, <strong>, <p>. Be concise.
 """
 
     try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate a response (empty candidates)."}), 500
-            
-        ai_response = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        ai_response = get_local_model_response(prompt)
         return jsonify({"response": ai_response, "is_html": True})
     except Exception as e:
         return jsonify({"error": f"Error generating summary: {str(e)}"}), 500
@@ -357,11 +351,7 @@ def start_quiz():
     """
 
     try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate a quiz (empty candidates)."}), 500
-            
-        raw_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+        raw_text = get_local_model_response(prompt)
         raw_text = raw_text.strip()
 
         if raw_text.startswith("```"):
@@ -461,11 +451,10 @@ def quiz_answer():
 
         Return clean bullet points only.
         """
-        response = model.generate_content(eval_prompt)
-        if not response.candidates:
-            feedback = "AI failed to evaluate the answer (empty candidates)."
-        else:
-            feedback = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+        try:
+            feedback = get_local_model_response(eval_prompt)
+        except Exception as e:
+            feedback = f"AI failed to evaluate the answer: {str(e)}"
 
         quiz["answers"].append({
             "question": question,
@@ -522,8 +511,7 @@ def mindmap():
     """
     
     try:
-        response = model.generate_content(prompt)
-        ai_res = "".join([p.text for p in response.candidates[0].content.parts])
+        ai_res = get_local_model_response(prompt)
         return jsonify({"response": ai_res, "is_html": True})
     except Exception as e:
         return jsonify({"error": f"Error Generating the mind map {str(e)}"}), 500
