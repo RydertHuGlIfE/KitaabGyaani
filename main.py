@@ -565,21 +565,25 @@ def handle_413(e):
 # ══════════════════════════════════════════════════════════════════════
 
 @app.route('/api/session/create', methods=['POST'])
+@app.route('/api/session/create', methods=['POST'])
 def create_session():
     """Create a new collaborative session from the current user's PDF."""
     filename = session.get('pdf_filename')
+    multi_filenames = session.get('multi_pdf_filenames', [])
     if not filename or filename not in uploaded_pdf_data:
         return jsonify({"error": "No PDF loaded. Please upload a PDF first."}), 400
 
     session_id = uuid.uuid4().hex[:12]  # Short unique ID
     collab_sessions[session_id] = {
         'pdf_filename': filename,
-        'pdf_data': uploaded_pdf_data[filename],
-        'pdf_text': uploaded_pdf_text.get(filename, ''),
-        'annotations': [],
+        'multi_pdf_filenames': multi_filenames,
+        'annotations': {}, 
         'chat_messages': [],
         'connected_users': 0
     }
+    
+    for fname in (multi_filenames if multi_filenames else [filename]):
+        collab_sessions[session_id]['annotations'][fname] = []
 
     # Build the shareable link
     host = request.host_url.rstrip('/')
@@ -602,7 +606,8 @@ def session_info(session_id):
     return jsonify({
         "sessionId": session_id,
         "pdf_filename": sess['pdf_filename'],
-        "annotations": sess['annotations'],
+        "multi_pdf_filenames": sess['multi_pdf_filenames'],
+        "annotations": sess['annotations'].get(sess['pdf_filename'], []),
         "chat_messages": sess['chat_messages'],
         "connected_users": sess['connected_users']
     })
@@ -615,10 +620,16 @@ def session_pdf(session_id):
     if not sess:
         return jsonify({"error": "Session not found"}), 404
 
+    filename = sess['pdf_filename']
+    pdf_bytes = uploaded_pdf_data.get(filename)
+
+    if not pdf_bytes:
+        return jsonify({"error": "PDF data not found in memory"}), 500
+
     return Response(
-        sess['pdf_data'],
+        pdf_bytes,
         mimetype='application/pdf',
-        headers={'Content-Disposition': f'inline; filename={sess["pdf_filename"]}'}
+        headers={'Content-Disposition': f'inline; filename={filename}'}
     )
 
 
@@ -633,7 +644,11 @@ def session_chat(session_id):
     user_message = data.get('message', '')
     sender = data.get('sender', 'Anonymous')
 
-    pdf_content = sess['pdf_text'][:60000]
+    # Fetch text from global storage instead of sess dict to save memory
+    pdf_filename = sess['pdf_filename']
+    pdf_text = uploaded_pdf_text.get(pdf_filename, '')
+    pdf_content = pdf_text[:60000]
+
     if not pdf_content:
         return jsonify({"error": "No PDF content in this session."}), 400
 
@@ -733,12 +748,37 @@ def handle_new_annotation(data):
     """Receive and broadcast a new annotation."""
     session_id = data.get('sessionId')
     annotation = data.get('annotation')
+    filename = data.get('filename') # Support per-file annotations
     sess = collab_sessions.get(session_id)
-    if not sess or not annotation:
+    if not sess or not annotation or not filename:
         return
 
-    sess['annotations'].append(annotation)
-    emit('annotation_update', annotation, room=session_id, include_self=False)
+    if filename not in sess['annotations']:
+        sess['annotations'][filename] = []
+        
+    sess['annotations'][filename].append(annotation)
+    emit('annotation_update', {'annotation': annotation, 'filename': filename}, room=session_id, include_self=False)
+
+@socketio.on('switch_pdf')
+def handle_switch_pdf(data):
+    """A user switched the active PDF in a session."""
+    session_id = data.get('sessionId')
+    filename = data.get('filename')
+    username = data.get('username', 'Anonymous')
+    
+    sess = collab_sessions.get(session_id)
+    if not sess or not filename:
+        return
+        
+    if filename in sess['multi_pdf_filenames'] or filename == sess['pdf_filename']:
+        sess['pdf_filename'] = filename
+        
+        # Broadcast the switch to everyone in the room
+        emit('pdf_switched', {
+            'filename': filename,
+            'username': username,
+            'annotations': sess['annotations'].get(filename, [])
+        }, room=session_id)
 
 
 @socketio.on('disconnect')

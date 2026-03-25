@@ -8,6 +8,7 @@ export default function CollabViewerPage() {
     const navigate = useNavigate()
 
     const [pdfFilename, setPdfFilename] = useState('')
+    const [multiFilenames, setMultiFilenames] = useState([])
     const [messages, setMessages] = useState([])
     const [input, setInput] = useState('')
     const [loading, setLoading] = useState(false)
@@ -44,6 +45,7 @@ export default function CollabViewerPage() {
                     return
                 }
                 setPdfFilename(data.pdf_filename)
+                setMultiFilenames(data.multi_pdf_filenames || [])
                 setAnnotations(data.annotations || [])
                 setConnectedUsers(data.connected_users || 0)
 
@@ -80,8 +82,20 @@ export default function CollabViewerPage() {
             ])
         })
 
-        socket.on('annotation_update', (annotation) => {
-            setAnnotations(prev => [...prev, annotation])
+        socket.on('annotation_update', (data) => {
+            // Only add annotation if it's for the currently viewed PDF
+            if (data.filename === pdfFilename || !data.filename) {
+                setAnnotations(prev => [...prev, data.annotation || data])
+            }
+        })
+
+        socket.on('pdf_switched', (data) => {
+            setPdfFilename(data.filename)
+            setAnnotations(data.annotations || [])
+            setMessages(prev => [...prev, {
+                role: 'bot',
+                content: `<span style="color:#06b6d4;">📄 <b>${data.username}</b> switched the document to <strong>${data.filename}</strong></span>`
+            }])
         })
 
         socket.on('user_joined', (data) => {
@@ -126,7 +140,8 @@ export default function CollabViewerPage() {
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
         // Draw all annotations
-        annotations.forEach(ann => {
+        const validAnnotations = Array.isArray(annotations) ? annotations : []
+        validAnnotations.forEach(ann => {
             if (ann.type === 'highlight') {
                 ctx.fillStyle = ann.color || 'rgba(251,191,36,0.3)'
                 ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
@@ -178,6 +193,20 @@ export default function CollabViewerPage() {
         await navigator.clipboard.writeText(link)
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
+    }
+
+    const handleSwitchPdf = (filename) => {
+        if (filename === pdfFilename || loading) return
+        
+        // Optimistically set the filename and drop current annotations
+        setPdfFilename(filename)
+        setAnnotations([])
+        
+        socketRef.current?.emit('switch_pdf', {
+            sessionId,
+            filename,
+            username
+        })
     }
 
     // ─── Canvas mouse handlers for annotations ─────────────────
@@ -247,7 +276,8 @@ export default function CollabViewerPage() {
             setAnnotations(prev => [...prev, annotation])
             socketRef.current?.emit('new_annotation', {
                 sessionId,
-                annotation
+                annotation,
+                filename: pdfFilename
             })
         }
 
@@ -293,6 +323,25 @@ export default function CollabViewerPage() {
             </div>
 
             <div className="viewer-layout">
+                {/* Sidebar - only show if multiple PDFs */}
+                {multiFilenames.length > 0 && (
+                    <div className="viewer-sidebar">
+                        <div className="sidebar-header">Documents</div>
+                        <div className="sidebar-list">
+                            {multiFilenames.map((fname, idx) => (
+                                <div
+                                    key={idx}
+                                    className={`sidebar-item${pdfFilename === fname ? ' active' : ''}`}
+                                    onClick={() => handleSwitchPdf(fname)}
+                                >
+                                    <span className="sidebar-item-icon">📄</span>
+                                    <span className="sidebar-item-name">{fname}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* PDF Panel with Annotation Overlay */}
                 <div className="pdf-panel">
                     <div className="pdf-panel-header">
@@ -332,6 +381,7 @@ export default function CollabViewerPage() {
                                 className="pdf-iframe"
                                 src={`/api/session/${sessionId}/pdf`}
                                 title="PDF Viewer"
+                                key={pdfFilename} // Important to force reload
                             />
                         )}
                         <canvas
