@@ -35,33 +35,21 @@ model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
     "max_output_tokens": 20480
 })
 
-# In-memory storage - no files saved to disk (Vercel compatible)
-uploaded_pdf_text = {}  # Store extracted text
-uploaded_pdf_data = {}  # Store PDF bytes for viewer
+uploaded_pdf_text = {}  
+uploaded_pdf_data = {} 
 
-# Collaborative sessions storage
-# sessions[sessionId] = {
-#     'pdf_filename': str,
-#     'pdf_data': bytes,
-#     'pdf_text': str,
-#     'annotations': [],
-#     'chat_messages': [],
-#     'connected_users': 0
-# }
+#mc koi ise chuna nahi 
 collab_sessions = {}
 
-# ── React SPA routes ──────────────────────────────────────────────────────────
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
-    # Let API routes pass through (they are defined below and take priority)
     full = os.path.join(REACT_BUILD, path)
     if path and os.path.exists(full):
         response = send_from_directory(REACT_BUILD, path)
     else:
         response = send_from_directory(REACT_BUILD, 'index.html')
     
-    # Disable caching for React build files so updates are seen immediately
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
