@@ -26,6 +26,12 @@ export default function CollabViewerPage() {
     const socketRef = useRef(null)
     const messagesEndRef = useRef()
     const canvasRef = useRef()
+    const currentPdfRef = useRef(pdfFilename)
+
+    // Keep ref in sync with state
+    useEffect(() => {
+        currentPdfRef.current = pdfFilename
+    }, [pdfFilename])
 
     const username = useRef('User-' + Math.random().toString(36).substring(2, 6)).current
 
@@ -84,8 +90,11 @@ export default function CollabViewerPage() {
 
         socket.on('annotation_update', (data) => {
             // Only add annotation if it's for the currently viewed PDF
-            if (data.filename === pdfFilename || !data.filename) {
-                setAnnotations(prev => [...prev, data.annotation || data])
+            if (data.filename === currentPdfRef.current || !data.filename) {
+                setAnnotations(prev => {
+                    const valid = Array.isArray(prev) ? prev : []
+                    return [...valid, data.annotation || data]
+                })
             }
         })
 

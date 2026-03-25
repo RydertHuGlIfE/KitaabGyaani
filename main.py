@@ -206,12 +206,13 @@ def upload_multiple_pdfs():
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 
-def get_combined_pdf_content(limit=60000):
-    """Aggregates text from all uploaded PDFs in the session."""
-    filenames = session.get('multi_pdf_filenames', [])
-    if not filenames:
-        single = session.get('pdf_filename', '')
-        filenames = [single] if single else []
+def get_combined_pdf_content(limit=60000, filenames=None):
+    """Aggregates text from all uploaded PDFs."""
+    if filenames is None:
+        filenames = session.get('multi_pdf_filenames', [])
+        if not filenames:
+            single = session.get('pdf_filename', '')
+            filenames = [single] if single else []
 
     if not filenames:
         return None, 0
@@ -645,9 +646,8 @@ def session_chat(session_id):
     sender = data.get('sender', 'Anonymous')
 
     # Fetch text from global storage instead of sess dict to save memory
-    pdf_filename = sess['pdf_filename']
-    pdf_text = uploaded_pdf_text.get(pdf_filename, '')
-    pdf_content = pdf_text[:60000]
+    filenames = sess.get('multi_pdf_filenames') or [sess['pdf_filename']]
+    pdf_content, doc_count = get_combined_pdf_content(limit=60000, filenames=filenames)
 
     if not pdf_content:
         return jsonify({"error": "No PDF content in this session."}), 400
@@ -713,7 +713,7 @@ def handle_join_session(data):
 
     # Send existing state to the joining user
     emit('session_state', {
-        'annotations': sess['annotations'],
+        'annotations': sess['annotations'].get(sess['pdf_filename'], []),
         'chat_messages': sess['chat_messages'],
         'connected_users': sess['connected_users']
     })
