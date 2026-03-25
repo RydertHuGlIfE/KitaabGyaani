@@ -177,6 +177,24 @@ export default function ViewerPage() {
         }
     }
 
+    const handleStartCollab = async () => {
+        setLoading(true)
+        try {
+            const res = await fetch('/api/session/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            const data = await res.json()
+            if (data.success) {
+                // Auto-join the creator into the new session
+                navigate(`/session?sessionid=${data.sessionId}`)
+            } else {
+                addMessage('bot', data.error || 'Failed to create session.')
+            }
+        } catch { addMessage('bot', 'Error creating collab session.') }
+        finally { setLoading(false) }
+    }
+
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
@@ -253,6 +271,9 @@ export default function ViewerPage() {
                         </button>
                         <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
                             🎥 YouTube
+                        </button>
+                        <button className="action-btn collab-btn" onClick={handleStartCollab} disabled={loading}>
+                            🔗 Start Collab
                         </button>
                     </div>
 

@@ -15,6 +15,11 @@ export default defineConfig({
       '/get-pdf-info': 'http://localhost:5000',
       '/pdf': 'http://localhost:5000',
       '/switch-pdf': 'http://localhost:5000',
+      '/api/session': 'http://localhost:5000',
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        ws: true,
+      },
     }
   }
 })

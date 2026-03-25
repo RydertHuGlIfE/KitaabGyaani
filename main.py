@@ -13,7 +13,9 @@ import time
 import requests
 import PyPDF2
 import base64
+import uuid
 from io import BytesIO
+from flask_socketio import SocketIO, emit, join_room, leave_room
 
 # Serve React build from frontend/dist
 REACT_BUILD = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
@@ -22,6 +24,9 @@ app = Flask(__name__, static_folder=REACT_BUILD, static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024 
 ALLOWED_EXTENSIONS = {'pdf'}
 app.secret_key = "nullisgreat"   
+
+# SocketIO for real-time collaborative sessions
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -33,6 +38,17 @@ model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
 # In-memory storage - no files saved to disk (Vercel compatible)
 uploaded_pdf_text = {}  # Store extracted text
 uploaded_pdf_data = {}  # Store PDF bytes for viewer
+
+# Collaborative sessions storage
+# sessions[sessionId] = {
+#     'pdf_filename': str,
+#     'pdf_data': bytes,
+#     'pdf_text': str,
+#     'annotations': [],
+#     'chat_messages': [],
+#     'connected_users': 0
+# }
+collab_sessions = {}
 
 # ── React SPA routes ──────────────────────────────────────────────────────────
 @app.route('/', defaults={'path': ''})
@@ -544,7 +560,194 @@ def handle_413(e):
     return jsonify({"error": "File too large. Maximum size is 50MB."}), 413
 
 
+# ══════════════════════════════════════════════════════════════════════
+# COLLABORATIVE SESSION ROUTES
+# ══════════════════════════════════════════════════════════════════════
+
+@app.route('/api/session/create', methods=['POST'])
+def create_session():
+    """Create a new collaborative session from the current user's PDF."""
+    filename = session.get('pdf_filename')
+    if not filename or filename not in uploaded_pdf_data:
+        return jsonify({"error": "No PDF loaded. Please upload a PDF first."}), 400
+
+    session_id = uuid.uuid4().hex[:12]  # Short unique ID
+    collab_sessions[session_id] = {
+        'pdf_filename': filename,
+        'pdf_data': uploaded_pdf_data[filename],
+        'pdf_text': uploaded_pdf_text.get(filename, ''),
+        'annotations': [],
+        'chat_messages': [],
+        'connected_users': 0
+    }
+
+    # Build the shareable link
+    host = request.host_url.rstrip('/')
+    link = f"{host}/session?sessionid={session_id}"
+
+    return jsonify({
+        "success": True,
+        "sessionId": session_id,
+        "link": link
+    })
+
+
+@app.route('/api/session/<session_id>/info')
+def session_info(session_id):
+    """Return metadata for a collaborative session."""
+    sess = collab_sessions.get(session_id)
+    if not sess:
+        return jsonify({"error": "Session not found"}), 404
+
+    return jsonify({
+        "sessionId": session_id,
+        "pdf_filename": sess['pdf_filename'],
+        "annotations": sess['annotations'],
+        "chat_messages": sess['chat_messages'],
+        "connected_users": sess['connected_users']
+    })
+
+
+@app.route('/api/session/<session_id>/pdf')
+def session_pdf(session_id):
+    """Serve the PDF bytes for a collaborative session."""
+    sess = collab_sessions.get(session_id)
+    if not sess:
+        return jsonify({"error": "Session not found"}), 404
+
+    return Response(
+        sess['pdf_data'],
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'inline; filename={sess["pdf_filename"]}'}
+    )
+
+
+@app.route('/api/session/<session_id>/chat', methods=['POST'])
+def session_chat(session_id):
+    """Handle chat within a collaborative session — stores and broadcasts."""
+    sess = collab_sessions.get(session_id)
+    if not sess:
+        return jsonify({"error": "Session not found"}), 404
+
+    data = request.get_json()
+    user_message = data.get('message', '')
+    sender = data.get('sender', 'Anonymous')
+
+    pdf_content = sess['pdf_text'][:60000]
+    if not pdf_content:
+        return jsonify({"error": "No PDF content in this session."}), 400
+
+    prompt = f"""
+You are a helpful AI assistant. Answer questions based on the provided PDF content.
+
+PDF CONTENT:
+{pdf_content}
+
+IMPORTANT OUTPUT RULES:
+- Output valid HTML only (no Markdown, no backslash).
+- Do NOT use ``` or mention 'html'.
+- Use <h3> for titles, <ol><li> for lists, <strong> for bold, <p> for paragraphs.
+- Answer as concisely as possible.
+
+USER QUESTION:
+{user_message}"""
+
+    try:
+        response = model.generate_content(prompt)
+        if not response.candidates:
+            return jsonify({"error": "AI failed to generate a response."}), 500
+
+        ai_response = response.text if hasattr(response, 'text') else "".join(
+            [p.text for p in response.candidates[0].content.parts]
+        )
+
+        # Store the message in session
+        chat_entry = {
+            'sender': sender,
+            'message': user_message,
+            'aiResponse': ai_response,
+            'timestamp': time.time()
+        }
+        sess['chat_messages'].append(chat_entry)
+
+        # Broadcast to all users in the room
+        socketio.emit('chat_update', chat_entry, room=session_id)
+
+        return jsonify({"response": ai_response, "is_html": True})
+    except Exception as e:
+        print(e)
+        return jsonify({"error": f"Error generating response: {str(e)}"}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SOCKETIO EVENTS
+# ══════════════════════════════════════════════════════════════════════
+
+@socketio.on('join_session')
+def handle_join_session(data):
+    """User joins a collaborative session room."""
+    session_id = data.get('sessionId')
+    username = data.get('username', 'Anonymous')
+    sess = collab_sessions.get(session_id)
+    if not sess:
+        emit('error', {'message': 'Session not found'})
+        return
+
+    join_room(session_id)
+    sess['connected_users'] += 1
+
+    # Send existing state to the joining user
+    emit('session_state', {
+        'annotations': sess['annotations'],
+        'chat_messages': sess['chat_messages'],
+        'connected_users': sess['connected_users']
+    })
+
+    # Notify others that someone joined
+    emit('user_joined', {
+        'username': username,
+        'connected_users': sess['connected_users']
+    }, room=session_id, include_self=False)
+
+
+@socketio.on('leave_session')
+def handle_leave_session(data):
+    """User leaves a collaborative session room."""
+    session_id = data.get('sessionId')
+    username = data.get('username', 'Anonymous')
+    sess = collab_sessions.get(session_id)
+    if not sess:
+        return
+
+    leave_room(session_id)
+    sess['connected_users'] = max(0, sess['connected_users'] - 1)
+
+    emit('user_left', {
+        'username': username,
+        'connected_users': sess['connected_users']
+    }, room=session_id)
+
+
+@socketio.on('new_annotation')
+def handle_new_annotation(data):
+    """Receive and broadcast a new annotation."""
+    session_id = data.get('sessionId')
+    annotation = data.get('annotation')
+    sess = collab_sessions.get(session_id)
+    if not sess or not annotation:
+        return
+
+    sess['annotations'].append(annotation)
+    emit('annotation_update', annotation, room=session_id, include_self=False)
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle user disconnection — decrement counters."""
+    pass  # Room cleanup is handled automatically by Flask-SocketIO
+
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    socketio.run(app, debug=True)
 
 application = app
