@@ -528,6 +528,84 @@ def mindmap():
     except Exception as e:
         return jsonify({"error": f"Error Generating the mind map {str(e)}"}), 500
     
+@app.route("/visualize", methods=['POST'])
+def visualize():
+    pdf_content, doc_count = get_combined_pdf_content(limit=40000)
+    if not pdf_content:
+        return jsonify({"error": "No PDF loaded"}), 400
+    
+    prompt = f"""
+    Generate a valid Mermaid.js flowchart code based on these {doc_count} document(s).
+    
+    PDF CONTENT:
+    {pdf_content}
+
+    Requirements:  
+    - Output only the Mermaid.js code (no explanations, no markdown, no extra text).  
+    - Start strictly with one of: "flowchart TD", "flowchart LR", "graph TD", or "graph LR" (choose based on best readability).  
+    - Include all major subtopics and their dependencies in a logical hierarchy.  
+    - Ensure the code is syntactically correct and does not break when rendered.  
+    - Ensure to remove the round brackets as well as the square brackets from the mermaid code to make the text simpler so that it does not break the rendering.  
+    - Use clear and concise labels for nodes (avoid long sentences).  
+    - Verify the diagram flows smoothly and looks balanced.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        if not response.candidates:
+            return jsonify({"error": "AI failed to generate a flowchart (empty candidates)."}), 500
+            
+        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        
+        # Clean up code if it was wrapped in markdown
+        ai_res = ai_res.strip()
+        if ai_res.startswith("```mermaid"):
+            ai_res = ai_res.replace("```mermaid", "", 1)
+        if ai_res.startswith("```"):
+            ai_res = ai_res.replace("```", "", 1)
+        if ai_res.endswith("```"):
+            ai_res = ai_res[:-3]
+            
+        return jsonify({"mermaid_code": ai_res.strip()})
+    except Exception as e:
+        return jsonify({"error": f"Error generating the flowchart: {str(e)}"}), 500
+
+@app.route("/visualize/subtopic", methods=['POST'])
+def visualize_subtopic():
+    data = request.get_json()
+    subtopic_name = data.get('subtopic_name', '')
+    
+    if not subtopic_name:
+         return jsonify({"error": "No subtopic name provided"}), 400
+         
+    pdf_content, doc_count = get_combined_pdf_content(limit=30000)
+    if not pdf_content:
+        return jsonify({"error": "No PDF loaded"}), 400
+        
+    prompt = f"""
+    Generate clear and concise revision notes for the subtopic "{subtopic_name}" based on these {doc_count} document(s).
+    
+    PDF CONTENT:
+    {pdf_content}
+
+    Requirements:  
+    - Present the notes in a structured, easy-to-read format (using short paragraphs or bullet points).  
+    - Cover all the key concepts, definitions, formulas (if any), and important points needed for quick revision.  
+    - Keep the content descriptive but concise — enough for quick understanding without being overly detailed.  
+    - Ensure accuracy based ONLY on the provided document(s).
+    - Format output in Markdown.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        if not response.candidates:
+            return jsonify({"error": "AI failed to generate subtopic content (empty candidates)."}), 500
+            
+        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        return jsonify({"content": ai_res.strip()})
+    except Exception as e:
+        return jsonify({"error": f"Error generating subtopic content: {str(e)}"}), 500
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 

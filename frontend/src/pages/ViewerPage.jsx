@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import MermaidDiagram from '../components/MermaidDiagram'
 
 export default function ViewerPage() {
     const [messages, setMessages] = useState([
@@ -12,6 +13,14 @@ export default function ViewerPage() {
     const [quizActive, setQuizActive] = useState(false)
     const [showYT, setShowYT] = useState(false)
     const [ytInput, setYtInput] = useState('')
+    
+    // Visualizer States
+    const [showVisualizer, setShowVisualizer] = useState(false)
+    const [loadingVisualize, setLoadingVisualize] = useState(false)
+    const [mermaidCode, setMermaidCode] = useState('')
+    const [selectedNode, setSelectedNode] = useState(null)
+    const [subtopicContent, setSubtopicContent] = useState('')
+    const [loadingSubtopic, setLoadingSubtopic] = useState(false)
     const messagesEndRef = useRef()
     const inputRef = useRef()
     const navigate = useNavigate()
@@ -117,6 +126,54 @@ export default function ViewerPage() {
             addMessage('bot', data.response || 'Error creating mind map.')
         } catch { addMessage('bot', 'Error creating mind map.') }
         finally { setLoading(false) }
+    }
+
+    const handleVisualize = async () => {
+        addMessage('user', 'Visualize this document')
+        setShowVisualizer(true)
+        setLoadingVisualize(true)
+        setMermaidCode('')
+        setSelectedNode(null)
+        setSubtopicContent('')
+        try {
+            const res = await fetch('/visualize', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            const data = await res.json()
+            if (data.mermaid_code) {
+                setMermaidCode(data.mermaid_code)
+                addMessage('bot', 'Here is the interactive flowchart. Click nodes to see details!')
+            } else {
+                addMessage('bot', data.error || 'Error creating flowchart.')
+                setShowVisualizer(false)
+            }
+        } catch { 
+            addMessage('bot', 'Error creating flowchart.') 
+            setShowVisualizer(false)
+        } finally {
+            setLoadingVisualize(false)
+        }
+    }
+
+    const handleNodeClick = async (id, label) => {
+        setSelectedNode({ id, label })
+        setSubtopicContent('')
+        setLoadingSubtopic(true)
+        try {
+            const res = await fetch('/visualize/subtopic', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subtopic_name: label })
+            })
+            const data = await res.json()
+            if (data.content) {
+                setSubtopicContent(data.content)
+            } else {
+                setSubtopicContent('Failed to load content. ' + (data.error || ''))
+            }
+        } catch {
+            setSubtopicContent('Error connecting to server.')
+        } finally {
+            setLoadingSubtopic(false)
+        }
     }
 
     const handleStartQuiz = async () => {
@@ -226,14 +283,35 @@ export default function ViewerPage() {
                             Upload New
                         </button>
                     </div>
-                    {pdfFilename && (
+                    {showVisualizer ? (
+                        <div className="visualizer-panel">
+                            <div className="visualizer-header">
+                                <h3>Interactive Flowchart</h3>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowVisualizer(false)}>✕ Close</button>
+                            </div>
+                            <div className="visualizer-content">
+                                {loadingVisualize ? (
+                                    <div className="loading-state">
+                                        <div className="spinner" />
+                                        <div className="loading-text">Generating flowchart with AI...</div>
+                                    </div>
+                                ) : mermaidCode ? (
+                                    <div className="mermaid-wrapper">
+                                        <MermaidDiagram code={mermaidCode} onNodeClick={handleNodeClick} />
+                                    </div>
+                                ) : (
+                                    <div className="empty-state">No flowchart generated.</div>
+                                )}
+                            </div>
+                        </div>
+                    ) : pdfFilename ? (
                         <iframe
                             className="pdf-iframe"
                             src={`/pdf/${pdfFilename}`}
                             title="PDF Viewer"
                             key={pdfFilename}
                         />
-                    )}
+                    ) : null}
                 </div>
 
                 {/* Chat Panel */}
@@ -260,9 +338,13 @@ export default function ViewerPage() {
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="17" y1="10" x2="3" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="17" y1="18" x2="3" y2="18" /></svg>
                             {multiFilenames.length > 1 ? 'Summarize All' : 'Summarize'}
                         </button>
-                        <button className="action-btn" onClick={handleMindmap} disabled={loading}>
+                        <button className="action-btn" onClick={handleMindmap} disabled={loading || loadingVisualize}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 1v4" /><path d="M12 19v4" /><path d="M4.22 4.22l2.83 2.83" /><path d="M16.95 16.95l2.83 2.83" /></svg>
                             {multiFilenames.length > 1 ? 'Mind Map (All)' : 'Mind Map'}
+                        </button>
+                        <button className="action-btn" onClick={handleVisualize} disabled={loading || loadingVisualize}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                            {multiFilenames.length > 1 ? 'Visualize (All)' : 'Visualize'}
                         </button>
                         <button className="action-btn" onClick={handleStartQuiz} disabled={loading}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
@@ -347,6 +429,40 @@ export default function ViewerPage() {
                     </div>
                 </div>
             </div>
+
+            {selectedNode && (
+                <div className="subtopic-modal-overlay" onClick={() => setSelectedNode(null)}>
+                    <div className="subtopic-modal" onClick={e => e.stopPropagation()}>
+                        <div className="subtopic-modal-header">
+                            <h2>{selectedNode.label}</h2>
+                            <button className="close-modal-btn" onClick={() => setSelectedNode(null)}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                            </button>
+                        </div>
+                        <div className="subtopic-modal-body">
+                            {loadingSubtopic ? (
+                                <div className="loading-state">
+                                    <div className="spinner" />
+                                    <div className="loading-text">Loading notes from AI...</div>
+                                </div>
+                            ) : (
+                                <div 
+                                    className="markdown-content" 
+                                    dangerouslySetInnerHTML={{ 
+                                        __html: subtopicContent
+                                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                            .replace(/#{3,}\s*(.*?)\n/g, '<h3>$1</h3>')
+                                            .replace(/#{1,2}\s*(.*?)\n/g, '<h2>$1</h2>')
+                                            .replace(/\n\n/g, '<br><br>')
+                                            .replace(/\n- /g, '<br>• ') 
+                                    }} 
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

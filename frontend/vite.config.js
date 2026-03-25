@@ -15,6 +15,8 @@ export default defineConfig({
       '/get-pdf-info': 'http://localhost:5000',
       '/pdf': 'http://localhost:5000',
       '/switch-pdf': 'http://localhost:5000',
+      '/visualize': 'http://localhost:5000',
+      '/visualize/subtopic': 'http://localhost:5000',
     }
   }
 })
