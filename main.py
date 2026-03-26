@@ -35,6 +35,34 @@ model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
     "max_output_tokens": 20480
 })
 
+def clean_mermaid_syntax(text):
+    if not text: return ""
+    
+    # Remove markdown blocks
+    text = text.strip()
+    if text.startswith("```mermaid"): text = text.replace("```mermaid", "", 1)
+    if text.startswith("```"): text = text.replace("```", "", 1)
+    if text.endswith("```"): text = text.rsplit("```", 1)[0]
+    text = text.strip()
+    
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Look for Node labels like ID[Label] or ID(Label) or ID((Label))
+        if '[' in line and ']' in line:
+            parts = line.split('[', 1)
+            suffix = parts[1].rsplit(']', 1)
+            label = suffix[0].replace('"', "'") # Replace internal " with '
+            line = f'{parts[0]}["{label}"]{suffix[1]}'
+        elif '(' in line and ')' in line:
+            parts = line.split('(', 1)
+            suffix = parts[1].rsplit(')', 1)
+            label = suffix[0].replace('"', "'")
+            line = f'{parts[0]}("{label}"){suffix[1]}'
+        cleaned_lines.append(line)
+     
+    return "\n".join(cleaned_lines)
+
 # In-memory storage - no files saved to disk (Vercel compatible)
 uploaded_pdf_text = {}
 uploaded_pdf_data = {}
@@ -605,13 +633,12 @@ def visualize():
     {pdf_content}
 
     Requirements:  
-    - Output only the Mermaid.js code (no explanations, no markdown, no extra text).  
-    - Start strictly with one of: "flowchart TD", "flowchart LR", "graph TD", or "graph LR" (choose based on best readability).  
-    - Include all major subtopics and their dependencies in a logical hierarchy.  
-    - Ensure the code is syntactically correct and does not break when rendered.  
-    - Ensure to remove the round brackets as well as the square brackets from the mermaid code to make the text simpler so that it does not break the rendering.  
-    - Use clear and concise labels for nodes (avoid long sentences).  
-    - Verify the diagram flows smoothly and looks balanced.
+    - Output ONLY raw Mermaid code (no markdown blocks, no explanations).
+    - Start with "flowchart TD" or "graph TD".
+    - IMPORTANT: All node labels MUST be wrapped in double quotes: ID["Label Text"].
+    - DO NOT use double quotes INSIDE a label text. Use single quotes if needed.
+    - Remove any parentheses () or square brackets [] from INSIDE the label text.
+    - Use clear and concise labels.
     """
     
     try:
@@ -620,16 +647,7 @@ def visualize():
             return jsonify({"error": "AI failed to generate a flowchart (empty candidates)."}), 500
             
         ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
-        
-        # Clean up code if it was wrapped in markdown
-        ai_res = ai_res.strip()
-        if ai_res.startswith("```mermaid"):
-            ai_res = ai_res.replace("```mermaid", "", 1)
-        if ai_res.startswith("```"):
-            ai_res = ai_res.replace("```", "", 1)
-        if ai_res.endswith("```"):
-            ai_res = ai_res[:-3]
-            
+        ai_res = clean_mermaid_syntax(ai_res)
         return jsonify({"mermaid_code": ai_res.strip()})
     except Exception as e:
         return jsonify({"error": f"Error generating the flowchart: {str(e)}"}), 500
@@ -871,13 +889,19 @@ def session_visualize(session_id):
     if not pdf_content: return jsonify({"error": "No PDF loaded"}), 400
     
     prompt = f"""Generate a Mermaid.js flowchart mapping out the key concepts in these {doc_count} document(s).
-PDF CONTENT:
-{pdf_content}
-Rules: Use graph TD. Use clear labels. Output ONLY the raw Mermaid code block. No explanation."""
+    PDF CONTENT:
+    {pdf_content}
+    Rules: 
+    - Use graph TD. 
+    - Output ONLY raw Mermaid code (no markdown blocks, no explanations).
+    - IMPORTANT: All node labels MUST be wrapped in double quotes: ID["Label Text"].
+    - DO NOT use double quotes INSIDE a label text.
+    - Remove any parentheses () or square brackets [] from INSIDE the label text.
+    """
     try:
         response = model.generate_content(prompt)
         ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
-        ai_res = ai_res.strip().replace("```mermaid", "").replace("```", "").strip()
+        ai_res = clean_mermaid_syntax(ai_res)
         sess['visualize_state'] = ai_res
         socketio.emit('visualize_update', {'mermaidCode': ai_res}, room=session_id)
         return jsonify({"mermaid_code": ai_res})
