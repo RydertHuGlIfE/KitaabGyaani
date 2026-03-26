@@ -1955,3 +1955,242 @@ a {
 .markdown-content em {
   color: var(--text-muted);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   COLLABORATIVE SESSION STYLES
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Collab Banner — sits between header and viewer-layout */
+.collab-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  background: var(--teal-light);
+  border-bottom: var(--border-width) solid var(--border);
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .collab-banner {
+  background: rgba(94, 221, 213, 0.08);
+}
+
+.collab-banner-left,
+.collab-banner-center,
+.collab-banner-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Pulsing green dot */
+.collab-live-dot {
+  width: 10px;
+  height: 10px;
+  background: var(--teal);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--teal-light);
+  animation: pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .collab-live-dot {
+  box-shadow: 0 0 0 3px rgba(94, 221, 213, 0.2);
+}
+
+.collab-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--teal);
+}
+
+.collab-session-id {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'Courier New', monospace;
+  background: var(--surface-2);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+}
+
+.collab-users-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  background: var(--surface);
+  border: var(--border-width) solid var(--border);
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--teal);
+  box-shadow: var(--shadow-sm);
+}
+
+.collab-copy-btn {
+  padding: 6px 14px;
+  background: var(--surface);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.collab-copy-btn:hover {
+  background: var(--yellow-light);
+  color: var(--text);
+  border-color: var(--yellow);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+/* Collab button in ViewerPage action bar */
+.action-btn.collab-btn {
+  background: var(--teal-light);
+  border-color: var(--teal);
+  color: var(--teal);
+  grid-column: span 2;
+}
+
+.action-btn.collab-btn:hover:not(:disabled) {
+  background: var(--teal);
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+[data-theme="dark"] .action-btn.collab-btn {
+  background: rgba(94, 221, 213, 0.1);
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
+[data-theme="dark"] .action-btn.collab-btn:hover:not(:disabled) {
+  background: rgba(94, 221, 213, 0.2);
+  color: var(--teal);
+}
+
+/* PDF canvas container — relative wrapper so the annotation canvas overlays */
+.pdf-canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.pdf-canvas-container .pdf-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: var(--pdf-bg);
+}
+
+/* Annotation canvas overlay */
+.annotation-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.annotation-canvas.active {
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+/* Annotation Toolbar */
+.annotation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.anno-btn {
+  width: 32px;
+  height: 32px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.anno-btn:hover {
+  background: var(--yellow-light);
+  border-color: var(--yellow);
+  transform: translateY(-1px);
+}
+
+.anno-btn.active {
+  background: var(--yellow-light);
+  border-color: var(--yellow);
+  box-shadow: 3px 3px 0px var(--yellow);
+}
+
+.anno-color-picker {
+  width: 28px;
+  height: 28px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: transparent;
+  padding: 2px;
+  box-shadow: var(--shadow-sm);
+}
+
+.anno-color-picker::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.anno-color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+/* Collab Error Page */
+.collab-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  text-align: center;
+  padding: 40px;
+  background: var(--bg-gradient);
+}
+
+.collab-error-icon {
+  font-size: 64px;
+  animation: bounce 0.5s ease;
+}
+
+.collab-error h2 {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--danger);
+}
+
+.collab-error p {
+  color: var(--text-muted);
+  font-size: 14px;
+  max-width: 400px;
+  line-height: 1.6;
+}

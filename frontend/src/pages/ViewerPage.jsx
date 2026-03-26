@@ -192,6 +192,24 @@ export default function ViewerPage() {
         finally { setLoading(false) }
     }
 
+    const handleStartCollab = async () => {
+        addMessage('user', 'Start a collaborative session')
+        setLoading(true)
+        try {
+            const res = await fetch('/api/session/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            const data = await res.json()
+            if (data.success) {
+                navigate(`/session?sessionid=${data.sessionId}`)
+            } else {
+                addMessage('bot', data.error || 'Failed to create session.')
+            }
+        } catch { addMessage('bot', 'Error creating collab session.') }
+        finally { setLoading(false) }
+    }
+
     const handleYTSearch = async () => {
         if (!ytInput.trim()) return
         addMessage('user', `Search YouTube for: ${ytInput}`)
@@ -353,6 +371,10 @@ export default function ViewerPage() {
                         <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
                             YouTube
+                        </button>
+                        <button className="action-btn collab-btn" onClick={handleStartCollab} disabled={loading}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                            Start Collab
                         </button>
                     </div>
 
