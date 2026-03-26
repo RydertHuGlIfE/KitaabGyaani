@@ -115,6 +115,7 @@ def upload_pdf():
         # Store the extracted text
         uploaded_pdf_text[filename] = pdf_text
         session['pdf_filename'] = filename
+        session.pop('multi_pdf_filenames', None)
         
         print(f"PDF text extracted successfully: {len(pdf_text)} characters (in-memory)")
         
@@ -333,37 +334,47 @@ Output valid HTML only using <h3>, <ol>, <li>, <strong>, <p>. Be concise.
 
 @app.route('/quiz/start', methods=['POST'])
 def start_quiz():
+    data = request.get_json() or {}
+    mode = data.get("mode", "mcq_game") # 'mcq_game' or 'theory'
+
     pdf_content, doc_count = get_combined_pdf_content()
     if not pdf_content:
         return jsonify({"error": "No PDF content found."}), 400
 
     seed = random.randint(1000, 9999)
-    prompt = f"""
-    You are a quiz generator. Create questions based on these {doc_count} document(s).
+    if mode == "theory":
+        prompt = f"""
+        You are a quiz generator. Create exactly 20 theoretical questions based on these {doc_count} document(s).
+        PDF CONTENT:
+        {pdf_content}
 
-    PDF CONTENT:
-    {pdf_content}
+        Return ONLY a valid JSON object with no other text.
+        {{
+          "theory": [
+            "Theory question 1?",
+            "Theory question 2?",
+            "Theory question 3?",
+            "..."
+          ]
+        }}
+        """
+    else:
+        prompt = f"""
+        You are a quiz generator. Create exactly 20 multiple-choice questions based on these {doc_count} document(s).
+        PDF CONTENT:
+        {pdf_content}
 
-    Use seed {seed}.
-    Generate 5 MCQs and 5 theoretical questions based on the content of all documents.
+        Use seed {seed}.
+        For MCQs, return options in this exact format:
+        ["A) option text", "B) option text", "C) option text", "D) option text"]
 
-    Use the unique identifier **{seed}** to ensure variety.
-
-    Generate 5 multiple-choice questions and 5 theoretical questions based on the document.
-    For MCQs, return options in this exact format:
-    ["A) option text" \\n, "B) option text" \\n, "C) option text" \\n, "D) option text" \\n]
-
-    Return **ONLY a valid JSON object** with no other text.
-    {{
-      "mcq": [
-        {{"q": "question text", "options": ["A) ...","B) ...","C) ...","D) ..."], "answer": "B"}}
-      ],
-      "theory": [
-        "Theory question 1?",
-        "Theory question 2?"
-      ]
-    }}
-    """
+        Return ONLY a valid JSON object with no other text.
+        {{
+          "mcq": [
+            {{"q": "question text", "options": ["A) ...","B) ...","C) ...","D) ..."], "answer": "B"}}
+          ]
+        }}
+        """
 
     try:
         response = model.generate_content(prompt)
@@ -380,23 +391,45 @@ def start_quiz():
 
         quiz_data = json.loads(raw_text)
 
-        session['quiz'] = {
-            "mcq": quiz_data["mcq"],
-            "theory": quiz_data["theory"],
-            "current_mcq": 0,
-            "current_theory": 0,
-            "phase": "mcq",
-            "answers": []
-        }
-        session.modified = True
-
-        first_q = quiz_data["mcq"][0]
-        return jsonify({
-            "instruction": "Please type options only in (A / B / C / D)",
+        if mode == "theory":
+            session['quiz'] = {
+                "theory": quiz_data.get("theory", []),
+                "current_theory": 0,
+                "phase": "theory",
+                "answers": [],
+                "mode": "theory"
+            }
+            session.modified = True
             
-            "question": first_q["q"],
-            "options": first_q["options"]
-        })
+            if not session['quiz']['theory']:
+                return jsonify({"error": "Failed to parse theory questions."}), 500
+
+            return jsonify({
+                "instruction": "Answer the theoretical questions descriptively.",
+                "question": session['quiz']["theory"][0]
+            })
+        else:
+            session['quiz'] = {
+                "mcq": quiz_data.get("mcq", []),
+                "current_mcq": 0,
+                "phase": "mcq",
+                "answers": [],
+                "lives": 4,
+                "mode": "mcq_game"
+            }
+            session.modified = True
+            
+            if not session['quiz']['mcq']:
+                return jsonify({"error": "Failed to parse MCQ questions."}), 500
+
+            first_q = session['quiz']["mcq"][0]
+            return jsonify({
+                "instruction": "Space Invaders Mode: Shoot the correct option. You have 4 lives.",
+                "question": first_q["q"],
+                "options": first_q["options"],
+                "lives": 4,
+                "mode": "mcq_game"
+            })
 
     except Exception as e:
         return jsonify({"error": f"Error generating Quiz: {str(e)}"}), 500
@@ -415,10 +448,23 @@ def quiz_answer():
     if quiz["phase"] == "mcq":
         q_index = quiz["current_mcq"]
         question = quiz["mcq"][q_index]["q"]
-        correct_U = quiz["mcq"][q_index]["answer"].strip().upper()
-        correct_L = quiz["mcq"][q_index]["answer"].strip().lower()
+        
+        mcq_data = quiz["mcq"][q_index]
+        correct_raw = mcq_data.get("answer", mcq_data.get("correct_answer", ""))
+        if isinstance(correct_raw, list):
+            correct_raw = correct_raw[0] if len(correct_raw) > 0 else ""
+            
+        correct_U = str(correct_raw).strip().upper()
+        ans_U = str(user_answer).strip().upper()
+        
+        # Robust matching: correct answer starts with user's letter (e.g., 'B' for 'B) Option')
+        is_correct = False
+        if correct_U and ans_U:
+            is_correct = correct_U.startswith(ans_U) or ans_U.startswith(correct_U) or ans_U == correct_U
+            
+        if not is_correct:
+            quiz["lives"] = quiz.get("lives", 4) - 1
 
-        is_correct = user_answer == correct_U or user_answer == correct_L
         result = {
             "question": question,
             "your_answer": user_answer,
@@ -427,20 +473,31 @@ def quiz_answer():
         }
         quiz["answers"].append(result)
         quiz["current_mcq"] += 1
+        
+        lives = quiz.get("lives", 4)
+        total = len(quiz["mcq"])
+        correct_count = sum(1 for ans in quiz["answers"] if ans.get("is_correct"))
 
-        if quiz["current_mcq"] >= len(quiz["mcq"]):
-            total = len(quiz["mcq"])
-            correct_count = sum(1 for ans in quiz["answers"] if ans.get("is_correct"))
-            score_msg = f"<h3>MCQ Round Completed!</h3><p>You scored <strong>{correct_count}/{total}</strong>.</p>"
-
-            quiz["phase"] = "theory"
-            session['quiz'] = quiz
-
+        if lives <= 0:
+            score_msg = f"<h3>Game Over!</h3><p>You ran out of lives. You scored <strong>{correct_count}</strong> correctly.</p>"
+            session.pop('quiz', None)
             return jsonify({
                 "result": result,
                 "message": score_msg,
                 "all_mcq_results": quiz["answers"],
-                "next_question": quiz["theory"][0]
+                "game_over": True,
+                "lives": 0
+            })
+
+        if quiz["current_mcq"] >= total:
+            score_msg = f"<h3>Victory!</h3><p>You have defeated the alien fleet and scored <strong>{correct_count}/{total}</strong>!</p>"
+            session.pop('quiz', None)
+            return jsonify({
+                "result": result,
+                "message": score_msg,
+                "all_mcq_results": quiz["answers"],
+                "game_over": True,
+                "lives": lives
             })
 
         else:
@@ -449,7 +506,8 @@ def quiz_answer():
             return jsonify({
                 "result": result,
                 "next_question": next_q["q"],
-                "options": next_q["options"]
+                "options": next_q["options"],
+                "lives": lives
             })
 
     # --- THEORY MODE ---
@@ -482,32 +540,29 @@ def quiz_answer():
             "evaluation": feedback
         })
         quiz["current_theory"] += 1
+        total_theory = len(quiz["theory"])
 
         # if more theory left 
-        if quiz["current_theory"] < len(quiz["theory"]):
+        if quiz["current_theory"] < total_theory:
             next_q = quiz["theory"][quiz["current_theory"]]
             session['quiz'] = quiz
             return jsonify({
                 "feedback": feedback,
-                "next_question": next_q
+                "next_question": next_q,
+                "progress": f"{{quiz['current_theory']}}/{{total_theory}}"
             })
 
         # if finished all theory
         else:
-            mcq_results = [a for a in quiz["answers"] if "is_correct" in a]
-            total_mcq = len(mcq_results)
-            correct_mcq = sum(1 for a in mcq_results if a["is_correct"])
-            score_msg = f"<h3>Quiz Completed!</h3><p>Your MCQ Score: <strong>{correct_mcq}/{total_mcq}</strong></p>"
-
+            score_msg = f"<h3>Theory Quiz Completed!</h3><p>You answered all {{total_theory}} questions.</p>"
             all_results = quiz["answers"]
-
-            # EXIT QUIZ MODE
             session.pop('quiz', None)
 
             return jsonify({
                 "feedback": feedback,
-                "message": score_msg + "<p>You are now back to normal mode</p>",
-                "all_results": all_results
+                "message": score_msg,
+                "all_results": all_results,
+                "game_over": True
             })
 
 
@@ -647,7 +702,9 @@ def create_session():
         'multi_pdf_filenames': multi_filenames,
         'annotations': {},
         'chat_messages': [],
-        'connected_users': 0
+        'connected_users': 0,
+        'quiz': None,
+        'visualize_state': None
     }
 
     for fname in (multi_filenames if multi_filenames else [filename]):
@@ -670,7 +727,9 @@ def session_info(session_id):
         "multi_pdf_filenames": sess['multi_pdf_filenames'],
         "annotations": sess['annotations'].get(sess['pdf_filename'], []),
         "chat_messages": sess['chat_messages'],
-        "connected_users": sess['connected_users']
+        "connected_users": sess['connected_users'],
+        "quiz": sess['quiz'],
+        "visualize_state": sess['visualize_state']
     })
 
 
@@ -742,6 +801,212 @@ USER QUESTION:
         return jsonify({"error": f"Error generating response: {str(e)}"}), 500
 
 
+@app.route('/api/session/<session_id>/summarize', methods=['POST'])
+def session_summarize(session_id):
+    sess = collab_sessions.get(session_id)
+    if not sess: return jsonify({"error": "Session not found"}), 404
+    data = request.get_json()
+    sender = data.get('sender', 'Anonymous')
+    filenames = sess.get('multi_pdf_filenames') or [sess['pdf_filename']]
+    pdf_content, doc_count = get_combined_pdf_content(limit=60000, filenames=filenames)
+    if not pdf_content: return jsonify({"error": "No PDF content found."}), 400
+
+    prompt = f"""You are a helpful assistant. Provide a comprehensive summary of these {doc_count} PDF document(s).
+PDF CONTENT:
+{pdf_content}
+STRUCTURE:
+<h3>1. Main topics and key points</h3><ol><li>...</li></ol>
+<h3>2. Important findings or conclusions</h3><ol><li>...</li></ol>
+<h3>3. Significant data or statistics</h3><ol><li>...</li></ol>
+<h3>4. Overall synthesis across documents</h3><p>...</p>
+Output valid HTML only using <h3>, <ol>, <li>, <strong>, <p>. Be concise."""
+
+    try:
+        response = model.generate_content(prompt)
+        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        chat_entry = {'sender': sender, 'message': 'Summarize this PDF', 'aiResponse': ai_res, 'timestamp': time.time()}
+        sess['chat_messages'].append(chat_entry)
+        socketio.emit('chat_update', chat_entry, room=session_id)
+        return jsonify({"response": ai_res, "is_html": True})
+    except Exception as e:
+        return jsonify({"error": f"Error generating summary: {str(e)}"}), 500
+
+
+@app.route('/api/session/<session_id>/mindmap', methods=['POST'])
+def session_mindmap(session_id):
+    sess = collab_sessions.get(session_id)
+    if not sess: return jsonify({"error": "Session not found"}), 404
+    data = request.get_json()
+    sender = data.get('sender', 'Anonymous')
+    filenames = sess.get('multi_pdf_filenames') or [sess['pdf_filename']]
+    pdf_content, doc_count = get_combined_pdf_content(limit=40000, filenames=filenames)
+    if not pdf_content: return jsonify({"error": "No PDF loaded"}), 400
+    
+    prompt = f"""You are a sophisticated AI. Create a detailed mindmap visual breakdown for these {doc_count} document(s).
+PDF CONTENT:
+{pdf_content}
+Structure the mindmap to cover all key aspects of all uploaded files.
+IMPORTANT OUTPUT RULES:
+- Output valid HTML only (no Markdown, no backslashes).
+- Use <h3> for titles, <ol><li> for lists, <strong> for bold.
+- Be extremely comprehensive."""
+    
+    try:
+        response = model.generate_content(prompt)
+        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        chat_entry = {'sender': sender, 'message': 'Create a mind map for this PDF', 'aiResponse': ai_res, 'timestamp': time.time()}
+        sess['chat_messages'].append(chat_entry)
+        socketio.emit('chat_update', chat_entry, room=session_id)
+        return jsonify({"response": ai_res, "is_html": True})
+    except Exception as e:
+        return jsonify({"error": f"Error Generating mind map: {str(e)}"}), 500
+
+
+@app.route('/api/session/<session_id>/visualize', methods=['POST'])
+def session_visualize(session_id):
+    sess = collab_sessions.get(session_id)
+    if not sess: return jsonify({"error": "Session not found"}), 404
+    filenames = sess.get('multi_pdf_filenames') or [sess['pdf_filename']]
+    pdf_content, doc_count = get_combined_pdf_content(limit=40000, filenames=filenames)
+    if not pdf_content: return jsonify({"error": "No PDF loaded"}), 400
+    
+    prompt = f"""Generate a Mermaid.js flowchart mapping out the key concepts in these {doc_count} document(s).
+PDF CONTENT:
+{pdf_content}
+Rules: Use graph TD. Use clear labels. Output ONLY the raw Mermaid code block. No explanation."""
+    try:
+        response = model.generate_content(prompt)
+        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        ai_res = ai_res.strip().replace("```mermaid", "").replace("```", "").strip()
+        sess['visualize_state'] = ai_res
+        socketio.emit('visualize_update', {'mermaidCode': ai_res}, room=session_id)
+        return jsonify({"mermaid_code": ai_res})
+    except Exception as e:
+        return jsonify({"error": f"Error generating flowchart: {str(e)}"}), 500
+
+
+@app.route('/api/session/<session_id>/quiz/start', methods=['POST'])
+def session_quiz_start(session_id):
+    sess = collab_sessions.get(session_id)
+    if not sess: return jsonify({"error": "Session not found"}), 404
+    filenames = sess.get('multi_pdf_filenames') or [sess['pdf_filename']]
+    pdf_content, doc_count = get_combined_pdf_content(limit=60000, filenames=filenames)
+    if not pdf_content: return jsonify({"error": "No PDF content found."}), 400
+
+    seed = random.randint(1000, 9999)
+    prompt = f"""You are a quiz generator. Create questions based on these {doc_count} document(s).
+            PDF CONTENT:
+            {pdf_content}
+            Generate 5 multiple-choice questions and 5 theoretical questions. Seed {seed}.
+            For MCQs, return options in this exact format: ["A) ...", "B) ...", "C) ...", "D) ..."]
+            Return ONLY a valid JSON object:
+            {{"mcq": [{{"q":"...","options":["A)","B)","C)","D)"],"answer":"B"}}], "theory":["...","..."]}}"""
+
+    try:
+        response = model.generate_content(prompt)
+        raw_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+        raw_text = raw_text.strip().strip("`")
+        if raw_text.lower().startswith("json"): raw_text = raw_text[4:].strip()
+        
+        quiz_data = json.loads(raw_text)
+        sess['quiz'] = {
+            "mcq": quiz_data["mcq"],
+            "theory": quiz_data["theory"],
+            "current_mcq": 0,
+            "current_theory": 0,
+            "phase": "mcq",
+            "answers": []
+        }
+        first_q = quiz_data["mcq"][0]
+        
+        msg = f"<b>First Question:</b> {first_q['q']}<br><i>Options: {', '.join(first_q['options'])}</i>"
+        chat_entry = {'sender': 'System', 'message': 'Started a quiz', 'aiResponse': msg, 'timestamp': time.time()}
+        socketio.emit('quiz_started', {"chat_entry": chat_entry, "quiz_state": sess['quiz']}, room=session_id)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": f"Error generating Quiz: {str(e)}"}), 500
+
+
+@app.route('/api/session/<session_id>/quiz/answer', methods=['POST'])
+def session_quiz_answer(session_id):
+    sess = collab_sessions.get(session_id)
+    if not sess or not sess.get('quiz'): return jsonify({"error": "Quiz not started"}), 400
+    
+    data = request.json
+    user_answer = data.get("answer", "")
+    sender = data.get("sender", "Anonymous")
+    quiz = sess['quiz']
+
+    if quiz["phase"] == "mcq":
+        q_index = quiz["current_mcq"]
+        question = quiz["mcq"][q_index]["q"]
+        correct_U = quiz["mcq"][q_index]["answer"].strip().upper()
+        correct_L = quiz["mcq"][q_index]["answer"].strip().lower()
+        is_correct = user_answer == correct_U or user_answer == correct_L
+        
+        quiz["answers"].append({
+            "question": question, "your_answer": user_answer, 
+            "correct_answer": correct_U, "is_correct": is_correct, "user": sender
+        })
+        quiz["current_mcq"] += 1
+
+        prefix = f"<b>{sender} answered:</b> {user_answer} - "
+        prefix += "✅ Correct!" if is_correct else f"❌ Incorrect. Right answer: <strong>{correct_U}</strong>"
+
+        if quiz["current_mcq"] >= len(quiz["mcq"]):
+            quiz["phase"] = "theory"
+            next_q = quiz["theory"][0]
+            msg = f"{prefix}<br><br><h3>MCQ Round Completed!</h3><b>Next Question (Theory):</b> {next_q}"
+            chat_entry = {'sender': 'System', 'message': '', 'aiResponse': msg, 'timestamp': time.time()}
+            socketio.emit('quiz_answered', {"chat_entry": chat_entry, "quiz_state": quiz}, room=session_id)
+        else:
+            next_q = quiz["mcq"][quiz["current_mcq"]]
+            opts = f"<br><i>Options: {', '.join(next_q['options'])}</i>"
+            msg = f"{prefix}<br><br><b>Next Question:</b> {next_q['q']}{opts}"
+            chat_entry = {'sender': 'System', 'message': '', 'aiResponse': msg, 'timestamp': time.time()}
+            socketio.emit('quiz_answered', {"chat_entry": chat_entry, "quiz_state": quiz}, room=session_id)
+            
+        return jsonify({"success": True})
+
+    elif quiz["phase"] == "theory":
+        q_index = quiz["current_theory"]
+        question = quiz["theory"][q_index]
+
+        eval_prompt = f"Evaluate this theoretical answer:\nQuestion: {question}\nUser Answer: {user_answer}\nAnalyse on: Coverage, Depth, Confidence Score, Marks. Return clean bullet points only."
+        response = model.generate_content(eval_prompt)
+        feedback = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+
+        quiz["answers"].append({"question": question, "answer": user_answer, "evaluation": feedback, "user": sender})
+        quiz["current_theory"] += 1
+        
+        prefix = f"<b>{sender} answered:</b> {user_answer}<br><br><b>Feedback:</b><br>{feedback}"
+
+        if quiz["current_theory"] < len(quiz["theory"]):
+            next_q = quiz["theory"][quiz["current_theory"]]
+            msg = f"{prefix}<br><br><b>Next Question (Theory):</b> {next_q}"
+            chat_entry = {'sender': 'System', 'message': '', 'aiResponse': msg, 'timestamp': time.time()}
+            socketio.emit('quiz_answered', {"chat_entry": chat_entry, "quiz_state": quiz}, room=session_id)
+        else:
+            mcq_results = [a for a in quiz["answers"] if "is_correct" in a]
+            correct_mcq = sum(1 for a in mcq_results if a["is_correct"])
+            
+            html = f"{prefix}<br><br><h3>📜 Quiz Summary</h3><p>Total MCQ Score: <strong>{correct_mcq}/{len(mcq_results)}</strong></p>"
+            for item in quiz["answers"]:
+                if "is_correct" in item:
+                    html += f"<div style='margin-bottom:10px;padding-left:10px;border-left:3px solid {'#22c55e' if item['is_correct'] else '#ef4444'}'>"
+                    html += f"<p><strong>Q ({item['user']}):</strong> {item['question']}</p>"
+                    html += f"<p>Answer: {item['your_answer']} &nbsp; Correct: {item['correct_answer']} &nbsp; {'✅' if item['is_correct'] else '❌'}</p></div>"
+                elif "evaluation" in item:
+                    html += f"<div style='margin-bottom:10px'><p><strong>Theory Q ({item['user']}):</strong> {item['question']}</p>"
+                    html += f"<p><strong>Evaluation:</strong> {item['evaluation']}</p></div>"
+            
+            chat_entry = {'sender': 'System', 'message': '', 'aiResponse': html, 'timestamp': time.time()}
+            sess['quiz'] = None # Reset
+            socketio.emit('quiz_answered', {"chat_entry": chat_entry, "quiz_state": None}, room=session_id)
+            
+        return jsonify({"success": True})
+
+
 # ══════════════════════════════════════════════════════════════════════
 # SOCKETIO EVENTS
 # ══════════════════════════════════════════════════════════════════════
@@ -759,7 +1024,9 @@ def handle_join_session(data):
     emit('session_state', {
         'annotations': sess['annotations'].get(sess['pdf_filename'], []),
         'chat_messages': sess['chat_messages'],
-        'connected_users': sess['connected_users']
+        'connected_users': sess['connected_users'],
+        'quiz': sess['quiz'],
+        'visualize_state': sess['visualize_state']
     })
     emit('user_joined', {
         'username': username,

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MermaidDiagram from '../components/MermaidDiagram'
+import SpaceInvadersGame from '../components/SpaceInvadersGame'
+import '../components/SpaceInvaders.css'
 
 export default function ViewerPage() {
     const [messages, setMessages] = useState([
@@ -11,6 +13,9 @@ export default function ViewerPage() {
     const [pdfFilename, setPdfFilename] = useState('')
     const [multiFilenames, setMultiFilenames] = useState([])
     const [quizActive, setQuizActive] = useState(false)
+    const [quizMode, setQuizMode] = useState('none')
+    const [showQuizSelection, setShowQuizSelection] = useState(false)
+    const [mcqGameState, setMcqGameState] = useState(null)
     const [showYT, setShowYT] = useState(false)
     const [ytInput, setYtInput] = useState('')
     
@@ -52,7 +57,7 @@ export default function ViewerPage() {
         setLoading(true)
 
         try {
-            if (quizActive) {
+            if (quizActive || quizMode === 'theory') {
                 const res = await fetch('/quiz/answer', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -176,20 +181,71 @@ export default function ViewerPage() {
         }
     }
 
-    const handleStartQuiz = async () => {
-        addMessage('user', 'Start a quiz')
+    const handleStartQuiz = () => {
+        setShowQuizSelection(true)
+    }
+
+    const startSelectedQuiz = async (mode) => {
+        setShowQuizSelection(false)
+        addMessage('user', `Start a ${mode === 'mcq_game' ? 'Space Invaders MCQ' : 'Theory'} Quiz`)
         setLoading(true)
         try {
-            const res = await fetch('/quiz/start', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            const res = await fetch('/quiz/start', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode }) 
+            })
             const data = await res.json()
-            if (data.question) {
-                setQuizActive(true)
-                addMessage('bot', `<b>First Question:</b> ${data.question}<br><i>Options: ${data.options.join(', ')}</i>`)
+            if (data.question || data.options) {
+                if (mode === 'mcq_game') {
+                    setQuizMode('mcq_game')
+                    setMcqGameState({
+                        question: data.question,
+                        options: data.options,
+                        lives: 4
+                    })
+                    addMessage('bot', 'Starting Space Invaders! Let the game begin.')
+                } else {
+                    setQuizMode('theory')
+                    setQuizActive(true)
+                    addMessage('bot', `<b>First Question:</b> ${data.question}`)
+                }
             } else {
                 addMessage('bot', data.error || 'Error starting quiz.')
             }
         } catch { addMessage('bot', 'Error starting quiz.') }
         finally { setLoading(false) }
+    }
+
+    const handleMcqAnswer = async (answerText) => {
+        try {
+            const res = await fetch('/quiz/answer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ answer: answerText })
+            })
+            const data = await res.json()
+            
+            if (data.game_over) {
+                setTimeout(() => {
+                    setMcqGameState(null)
+                    setQuizMode('none')
+                    addMessage('bot', data.message || 'Game Over')
+                }, 1500)
+                return { is_correct: data.result?.is_correct }
+            } else {
+                setTimeout(() => {
+                    setMcqGameState({
+                        question: data.next_question,
+                        options: data.options,
+                        lives: data.lives
+                    })
+                }, 1000)
+                return { is_correct: data.result?.is_correct }
+            }
+        } catch (e) {
+            return { is_correct: false }
+        }
     }
 
     const handleStartCollab = async () => {
@@ -261,6 +317,36 @@ export default function ViewerPage() {
 
     return (
         <div className="viewer-page">
+            {showQuizSelection && (
+                <div className="quiz-selection-overlay">
+                    <div className="quiz-selection-modal">
+                        <h3>Select Quiz Mode (20 Questions)</h3>
+                        <div className="btn-group">
+                            <button className="btn btn-primary" onClick={() => startSelectedQuiz('mcq_game')}>
+                                🎮 Space Invaders (MCQ)
+                            </button>
+                            <button className="btn btn-secondary" onClick={() => startSelectedQuiz('theory')}>
+                                📝 Normal Theory
+                            </button>
+                            <button className="btn btn-ghost" onClick={() => setShowQuizSelection(false)}>
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {quizMode === 'mcq_game' && mcqGameState && (
+                <SpaceInvadersGame 
+                    gameState={mcqGameState} 
+                    onAnswer={handleMcqAnswer} 
+                    onClose={() => {
+                        setQuizMode('none')
+                        setMcqGameState(null)
+                        addMessage('bot', 'Quit Space Invaders Game.')
+                    }}
+                />
+            )}
             <div className="viewer-layout">
                 {/* Sidebar - only show if multiple PDFs */}
                 {multiFilenames.length > 0 && (

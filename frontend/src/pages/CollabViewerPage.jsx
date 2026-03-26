@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { io } from 'socket.io-client'
+import MermaidDiagram from '../components/MermaidDiagram'
 
 export default function CollabViewerPage() {
     const [searchParams] = useSearchParams()
@@ -16,6 +17,17 @@ export default function CollabViewerPage() {
     const [annotations, setAnnotations] = useState([])
     const [sessionError, setSessionError] = useState('')
     const [copied, setCopied] = useState(false)
+
+    // AI Features State
+    const [quizActive, setQuizActive] = useState(false)
+    const [showYT, setShowYT] = useState(false)
+    const [ytInput, setYtInput] = useState('')
+    const [showVisualizer, setShowVisualizer] = useState(false)
+    const [mermaidCode, setMermaidCode] = useState('')
+    const [selectedNode, setSelectedNode] = useState(null)
+    const [subtopicContent, setSubtopicContent] = useState('')
+    const [loadingVisualize, setLoadingVisualize] = useState(false)
+    const [loadingSubtopic, setLoadingSubtopic] = useState(false)
 
     // Annotation tool state
     const [annotationTool, setAnnotationTool] = useState('none') // 'none' | 'highlight' | 'draw'
@@ -61,6 +73,14 @@ export default function CollabViewerPage() {
                     { role: 'bot', content: `👋 Welcome to the collaborative session! You're viewing <strong>${data.pdf_filename}</strong>` },
                     ...existingMsgs
                 ])
+
+                if (data.quiz) {
+                    setQuizActive(true)
+                }
+                if (data.visualize_state) {
+                    setMermaidCode(data.visualize_state)
+                    setShowVisualizer(true)
+                }
             })
             .catch(() => setSessionError('Failed to load session.'))
 
@@ -104,6 +124,22 @@ export default function CollabViewerPage() {
         socket.on('pdf_switched', (data) => {
             setPdfFilename(data.filename)
             setAnnotations(data.annotations || [])
+        })
+
+        socket.on('quiz_started', (data) => {
+            setQuizActive(true)
+            setMessages(prev => [...prev, { role: 'bot', content: data.chat_entry.aiResponse }])
+        })
+
+        socket.on('quiz_answered', (data) => {
+            setMessages(prev => [...prev, { role: 'bot', content: data.chat_entry.aiResponse }])
+            if (!data.quiz_state) setQuizActive(false)
+        })
+
+        socket.on('visualize_update', (data) => {
+            setMermaidCode(data.mermaidCode)
+            setShowVisualizer(true)
+            setLoadingVisualize(false)
         })
 
         return () => {
@@ -238,18 +274,96 @@ export default function CollabViewerPage() {
         setCurrentPath([])
     }
 
+    // ─── Actions ──────────────────────────────────────────────
+    const handleSummarize = async () => {
+        setLoading(true)
+        try {
+            await fetch(`/api/session/${sessionId}/summarize`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sender: username })
+            })
+        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Network Error.' }]) }
+        finally { setLoading(false) }
+    }
+
+    const handleMindmap = async () => {
+        setLoading(true)
+        try {
+            await fetch(`/api/session/${sessionId}/mindmap`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sender: username })
+            })
+        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Network Error.' }]) }
+        finally { setLoading(false) }
+    }
+
+    const handleVisualize = async () => {
+        setShowVisualizer(true)
+        setLoadingVisualize(true)
+        setMermaidCode('')
+        setSelectedNode(null)
+        setSubtopicContent('')
+        try {
+            await fetch(`/api/session/${sessionId}/visualize`, { method: 'POST' })
+        } catch {}
+    }
+
+    const handleNodeClick = async (id, label) => {
+        setSelectedNode({ id, label })
+        setSubtopicContent('')
+        setLoadingSubtopic(true)
+        try {
+            const res = await fetch('/visualize/subtopic', { 
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subtopic_name: label })
+            })
+            const data = await res.json()
+            setSubtopicContent(data.content || 'Failed to load content.')
+        } catch { setSubtopicContent('Error connecting to server.') }
+        finally { setLoadingSubtopic(false) }
+    }
+
+    const handleStartQuiz = async () => {
+        setLoading(true)
+        try {
+            await fetch(`/api/session/${sessionId}/quiz/start`, { method: 'POST' })
+        } catch {} 
+        finally { setLoading(false) }
+    }
+
+    const handleYTSearch = async () => {
+        if (!ytInput.trim()) return
+        setShowYT(false)
+        const query = ytInput
+        setYtInput('')
+        setLoading(true)
+        try {
+            const res = await fetch('/chat', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: `search youtube for: ${query}` })
+            })
+            const data = await res.json()
+            setMessages(prev => [...prev, { role: 'bot', content: data.response || 'YouTube search opened in browser!' }])
+        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Error loading YouTube.' }]) }
+        finally { setLoading(false) }
+    }
+
     // ─── Send message ─────────────────────────────────────────
     const sendMessage = async (text) => {
         if (!text.trim() || loading) return
+        if (!quizActive) { 
+            // Only add local user message visual for non-quiz, quiz chat entries are formulated by server wrapper.
+            // Actually ViewerPage also adds local user message, let's just send the endpoint.
+        }
         setInput('')
         setLoading(true)
         try {
-            const res = await fetch(`/api/session/${sessionId}/chat`, {
+            const endpoint = quizActive ? `/api/session/${sessionId}/quiz/answer` : `/api/session/${sessionId}/chat`
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text, sender: username })
+                body: JSON.stringify(quizActive ? { answer: text, sender: username } : { message: text, sender: username })
             })
-            // Response is broadcast via socket. If socket fails, show locally.
             if (!res.ok) {
                 const data = await res.json()
                 setMessages(prev => [...prev, { role: 'bot', content: data.error || 'Error getting response.' }])
@@ -344,6 +458,9 @@ export default function CollabViewerPage() {
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
                             <span className="pdf-panel-title">{pdfFilename || 'Loading...'}</span>
                         </div>
+                        {showVisualizer && (
+                            <button className="btn btn-ghost btn-sm" onClick={() => setShowVisualizer(false)}>✕ Close Flowchart</button>
+                        )}
                         {/* Annotation Toolbar */}
                         <div className="annotation-toolbar">
                             <button
@@ -371,24 +488,41 @@ export default function CollabViewerPage() {
                         </div>
                     </div>
 
-                    <div className="pdf-canvas-container">
-                        {pdfFilename && (
-                            <iframe
-                                className="pdf-iframe"
-                                src={`/api/session/${sessionId}/pdf`}
-                                title="PDF Viewer"
-                                key={pdfFilename}
+                    {showVisualizer ? (
+                        <div className="visualizer-content" style={{flex: 1, position: 'relative', overflow: 'auto', background: 'var(--surface)'}}>
+                            {loadingVisualize ? (
+                                <div className="loading-state">
+                                    <div className="spinner" />
+                                    <div className="loading-text">Generating flowchart with AI...</div>
+                                </div>
+                            ) : mermaidCode ? (
+                                <div className="mermaid-wrapper">
+                                    <MermaidDiagram code={mermaidCode} onNodeClick={handleNodeClick} />
+                                </div>
+                            ) : (
+                                <div className="empty-state">No flowchart generated.</div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="pdf-canvas-container">
+                            {pdfFilename && (
+                                <iframe
+                                    className="pdf-iframe"
+                                    src={`/api/session/${sessionId}/pdf`}
+                                    title="PDF Viewer"
+                                    key={pdfFilename}
+                                />
+                            )}
+                            <canvas
+                                ref={canvasRef}
+                                className={`annotation-canvas${annotationTool !== 'none' ? ' active' : ''}`}
+                                onMouseDown={handleCanvasMouseDown}
+                                onMouseMove={handleCanvasMouseMove}
+                                onMouseUp={handleCanvasMouseUp}
+                                onMouseLeave={handleCanvasMouseUp}
                             />
-                        )}
-                        <canvas
-                            ref={canvasRef}
-                            className={`annotation-canvas${annotationTool !== 'none' ? ' active' : ''}`}
-                            onMouseDown={handleCanvasMouseDown}
-                            onMouseMove={handleCanvasMouseMove}
-                            onMouseUp={handleCanvasMouseUp}
-                            onMouseLeave={handleCanvasMouseUp}
-                        />
-                    </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Chat Panel */}
@@ -405,6 +539,30 @@ export default function CollabViewerPage() {
                                 </div>
                             </div>
                         </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="action-buttons">
+                        <button className="action-btn" onClick={handleSummarize} disabled={loading}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="17" y1="10" x2="3" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="17" y1="18" x2="3" y2="18" /></svg>
+                            {multiFilenames.length > 1 ? 'Summarize All' : 'Summarize'}
+                        </button>
+                        <button className="action-btn" onClick={handleMindmap} disabled={loading || loadingVisualize}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 1v4" /><path d="M12 19v4" /><path d="M4.22 4.22l2.83 2.83" /><path d="M16.95 16.95l2.83 2.83" /></svg>
+                            {multiFilenames.length > 1 ? 'Mind Map (All)' : 'Mind Map'}
+                        </button>
+                        <button className="action-btn" onClick={handleVisualize} disabled={loading || loadingVisualize}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                            {multiFilenames.length > 1 ? 'Visualize (All)' : 'Visualize'}
+                        </button>
+                        <button className="action-btn" onClick={handleStartQuiz} disabled={loading}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+                            {multiFilenames.length > 1 ? 'Quiz All' : 'Quiz'}
+                        </button>
+                        <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
+                            YouTube
+                        </button>
                     </div>
 
                     {/* Messages */}
@@ -440,10 +598,27 @@ export default function CollabViewerPage() {
 
                     {/* Input */}
                     <div className="chat-input-area">
+                        {showYT && (
+                            <div className="youtube-search-bar">
+                                <input
+                                    className="chat-input"
+                                    placeholder="What to search on YouTube?"
+                                    value={ytInput}
+                                    onChange={e => setYtInput(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter') handleYTSearch()
+                                        if (e.key === 'Escape') setShowYT(false)
+                                    }}
+                                    autoFocus
+                                />
+                                <button className="send-btn" onClick={handleYTSearch}>Search</button>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowYT(false)}>✕</button>
+                            </div>
+                        )}
                         <div className="chat-input-row">
                             <input
                                 className="chat-input"
-                                placeholder="Ask a question (shared with all users)…"
+                                placeholder={quizActive ? 'Type A / B / C / D or your answer…' : 'Ask a question (shared with all users)…'}
                                 value={input}
                                 onChange={e => setInput(e.target.value)}
                                 onKeyDown={e => {
@@ -466,6 +641,40 @@ export default function CollabViewerPage() {
                     </div>
                 </div>
             </div>
+
+            {selectedNode && (
+                <div className="subtopic-modal-overlay" onClick={() => setSelectedNode(null)}>
+                    <div className="subtopic-modal" onClick={e => e.stopPropagation()}>
+                        <div className="subtopic-modal-header">
+                            <h2>{selectedNode.label}</h2>
+                            <button className="close-modal-btn" onClick={() => setSelectedNode(null)}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                            </button>
+                        </div>
+                        <div className="subtopic-modal-body">
+                            {loadingSubtopic ? (
+                                <div className="loading-state">
+                                    <div className="spinner" />
+                                    <div className="loading-text">Loading notes from AI...</div>
+                                </div>
+                            ) : (
+                                <div 
+                                    className="markdown-content" 
+                                    dangerouslySetInnerHTML={{ 
+                                        __html: subtopicContent
+                                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                            .replace(/#{3,}\s*(.*?)\n/g, '<h3>$1</h3>')
+                                            .replace(/#{1,2}\s*(.*?)\n/g, '<h2>$1</h2>')
+                                            .replace(/\n\n/g, '<br><br>')
+                                            .replace(/\n- /g, '<br>• ') 
+                                    }} 
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
