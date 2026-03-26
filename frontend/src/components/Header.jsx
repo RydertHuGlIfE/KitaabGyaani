@@ -1,5 +1,6 @@
 import { useTheme } from '../context/ThemeContext'
 import { useLocation, Link } from 'react-router-dom'
+import PomodoroTimer from './PomodoroTimer'
 
 export default function Header() {
     const { theme, toggleTheme } = useTheme()
@@ -39,6 +40,7 @@ export default function Header() {
                         Viewer
                     </span>
                 )}
+                <PomodoroTimer />
             </nav>
 
             <div className="header-actions">

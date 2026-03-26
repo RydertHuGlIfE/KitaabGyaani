@@ -279,7 +279,7 @@ USER QUESTION:
         topic = user_message.replace("search youtube for:", "").strip()
         search_url = f"https://www.youtube.com/results?search_query={topic.replace(' ', '+')}"
         webbrowser.open(search_url)
-        return jsonify({"response": f"<p>Opened YouTube search for <strong>{topic}</strong> in your browser! 🎥</p>", "is_html": True})
+        return jsonify({"response": f"<p>Opened YouTube search for <strong>{topic}</strong> in your browser!</p>", "is_html": True})
 
     try:
         response = model.generate_content(prompt)

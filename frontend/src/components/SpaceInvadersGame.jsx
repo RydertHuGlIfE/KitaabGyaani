@@ -47,13 +47,10 @@ function Alien({ obj, isAnimating }) {
   if (!obj.alive) return null;
   return (
     <group ref={groupRef} position={[obj.x, obj.y, 0]}>
-      <sprite scale={[2.5, 2.5, 1]}>
+      <sprite scale={[2.0, 2.0, 1]}>
          <spriteMaterial map={texture} />
       </sprite>
-      <Text position={[0, -1.6, 0]} fontSize={0.8} color="#66fcf1" outlineWidth={0.05} outlineColor="#000">
-        {obj.char}
-      </Text>
-      <Text position={[0, -2.5, 0]} fontSize={0.4} color="#ffffff" maxWidth={4} textAlign="center">
+      <Text position={[0, -2.5, 0]} fontSize={0.32} color="#ffffff" maxWidth={5.8} textAlign="center" lineHeight={1.2}>
         {obj.text}
       </Text>
     </group>
@@ -115,7 +112,7 @@ function SceneManager({ gameState, onHit }) {
       const newAliens = gameState.options.map((opt, i) => ({
         id: i,
         char: ALIEN_LETTERS[i] || '?',
-        text: opt,
+        text: opt.replace(/^[A-D][.)]\s*/i, ''),
         x: startX + spacing * i,
         y: 6,
         hitboxY: 6,
@@ -214,10 +211,10 @@ export default function SpaceInvadersGame({ gameState, onAnswer, onClose }) {
   return (
     <div className="space-invaders-container">
       <div className="si-header">
-        <h2 className="space-mono">🔥 Space Invaders MCQ Mode 🔥</h2>
+        <h2 className="space-mono">SPACE INVADERS MCQ MODE</h2>
         <div className="si-stats space-mono">
-           <span>Lives: {'❤️'.repeat(gameState?.lives || 0)}</span>
-           <button onClick={onClose} className="si-close-btn space-mono">Quit</button>
+           <span>LIVES: {gameState?.lives || 0}</span>
+           <button onClick={onClose} className="si-close-btn space-mono">QUIT</button>
         </div>
       </div>
       
@@ -228,7 +225,7 @@ export default function SpaceInvadersGame({ gameState, onAnswer, onClose }) {
       <div className="si-play-area">
         {feedback && (
            <div className={`si-feedback ${feedback} space-mono`}>
-              {feedback === 'correct' ? '✅ CORRECT!' : `❌ INCORRECT!`}
+              {feedback === 'correct' ? 'CORRECT!' : `INCORRECT!`}
            </div>
         )}
         
@@ -241,7 +238,7 @@ export default function SpaceInvadersGame({ gameState, onAnswer, onClose }) {
         </ErrorBoundary>
       </div>
       <div className="si-controls space-mono">
-         A/D or ⬅️/➡️ to Move  |  SPACE to Shoot
+         A/D or LEFT/RIGHT to Move  |  SPACE to Shoot
       </div>
     </div>
   );

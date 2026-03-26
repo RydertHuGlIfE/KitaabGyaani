@@ -31,10 +31,10 @@ export default function MermaidDiagram({ code, onNodeClick }) {
             });
           }
         }).catch(err => {
-            console.error("Mermaid API error:", err);
-            if (chartRef.current) {
-                chartRef.current.innerHTML = '<p class="text-red-500">Error rendering diagram. Please check the syntax.</p>';
-            }
+          console.error("Mermaid API error:", err);
+          if (chartRef.current) {
+            chartRef.current.innerHTML = '<p class="text-red-500">Error rendering diagram. Please check the syntax.</p>';
+          }
         });
       } catch (error) {
         console.error("Error rendering mermaid diagram:", error);

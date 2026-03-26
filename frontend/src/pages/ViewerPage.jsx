@@ -297,7 +297,7 @@ export default function ViewerPage() {
             const data = await res.json()
             if (data.success) {
                 setPdfFilename(filename)
-                addMessage('bot', `📂 Switched to: <strong>${filename}</strong>. I'm ready to answer questions about this document.`)
+                addMessage('bot', `Switched to: <strong>${filename}</strong>. I'm ready to answer questions about this document.`)
             } else {
                 throw new Error(data.error || 'Switch failed')
             }
@@ -318,18 +318,21 @@ export default function ViewerPage() {
     return (
         <div className="viewer-page">
             {showQuizSelection && (
-                <div className="quiz-selection-overlay">
-                    <div className="quiz-selection-modal">
-                        <h3>Select Quiz Mode (20 Questions)</h3>
-                        <div className="btn-group">
-                            <button className="btn btn-primary" onClick={() => startSelectedQuiz('mcq_game')}>
-                                🎮 Space Invaders (MCQ)
+                <div className="subtopic-modal-overlay" onClick={() => setShowQuizSelection(false)}>
+                    <div className="subtopic-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', height: 'auto', paddingBottom: '24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid var(--border)' }}>
+                            <h2 style={{ fontSize: '1.2rem', margin: 0, color: 'var(--text-main)' }}>Select Quiz Mode</h2>
+                            <button onClick={() => setShowQuizSelection(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-main)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                             </button>
-                            <button className="btn btn-secondary" onClick={() => startSelectedQuiz('theory')}>
-                                📝 Normal Theory
+                        </div>
+                        <div className="subtopic-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden', padding: '16px 24px 0 24px' }}>
+                            <p style={{ margin: '0 0 8px 0', textAlign: 'center', fontSize: '0.9rem', color: 'var(--text-muted)' }}>(20 Questions)</p>
+                            <button className="btn btn-primary" onClick={() => startSelectedQuiz('mcq_game')} style={{ width: '100%', padding: '12px', justifyContent: 'center' }}>
+                                Space Invaders (MCQ)
                             </button>
-                            <button className="btn btn-ghost" onClick={() => setShowQuizSelection(false)}>
-                                Cancel
+                            <button className="btn btn-secondary" onClick={() => startSelectedQuiz('theory')} style={{ width: '100%', padding: '12px', justifyContent: 'center' }}>
+                                Normal Theory
                             </button>
                         </div>
                     </div>
