@@ -17,6 +17,11 @@ export default defineConfig({
       '/switch-pdf': 'http://localhost:5000',
       '/visualize': 'http://localhost:5000',
       '/visualize/subtopic': 'http://localhost:5000',
+      '/api/session': 'http://localhost:5000',
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        ws: true,
+      },
     }
   }
 })
