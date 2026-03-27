@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { io } from 'socket.io-client'
+import MermaidDiagram from '../components/MermaidDiagram'
 
 export default function CollabViewerPage() {
     const [searchParams] = useSearchParams()
@@ -17,9 +18,20 @@ export default function CollabViewerPage() {
     const [sessionError, setSessionError] = useState('')
     const [copied, setCopied] = useState(false)
 
+    // AI Features State
+    const [quizActive, setQuizActive] = useState(false)
+    const [showYT, setShowYT] = useState(false)
+    const [ytInput, setYtInput] = useState('')
+    const [showVisualizer, setShowVisualizer] = useState(false)
+    const [mermaidCode, setMermaidCode] = useState('')
+    const [selectedNode, setSelectedNode] = useState(null)
+    const [subtopicContent, setSubtopicContent] = useState('')
+    const [loadingVisualize, setLoadingVisualize] = useState(false)
+    const [loadingSubtopic, setLoadingSubtopic] = useState(false)
+
     // Annotation tool state
     const [annotationTool, setAnnotationTool] = useState('none') // 'none' | 'highlight' | 'draw'
-    const [annotationColor, setAnnotationColor] = useState('#fbbf24')
+    const [annotationColor, setAnnotationColor] = useState('#FFB830')
     const [isDrawing, setIsDrawing] = useState(false)
     const [currentPath, setCurrentPath] = useState([])
 
@@ -28,7 +40,6 @@ export default function CollabViewerPage() {
     const canvasRef = useRef()
     const currentPdfRef = useRef(pdfFilename)
 
-    // Keep ref in sync with state
     useEffect(() => {
         currentPdfRef.current = pdfFilename
     }, [pdfFilename])
@@ -42,7 +53,6 @@ export default function CollabViewerPage() {
             return
         }
 
-        // Fetch session info
         fetch(`/api/session/${sessionId}/info`)
             .then(r => r.json())
             .then(data => {
@@ -55,7 +65,6 @@ export default function CollabViewerPage() {
                 setAnnotations(data.annotations || [])
                 setConnectedUsers(data.connected_users || 0)
 
-                // Load existing chat messages
                 const existingMsgs = (data.chat_messages || []).flatMap(entry => [
                     { role: 'user', content: `<b>${entry.sender}:</b> ${entry.message}` },
                     { role: 'bot', content: entry.aiResponse }
@@ -64,10 +73,17 @@ export default function CollabViewerPage() {
                     { role: 'bot', content: `👋 Welcome to the collaborative session! You're viewing <strong>${data.pdf_filename}</strong>` },
                     ...existingMsgs
                 ])
+
+                if (data.quiz) {
+                    setQuizActive(true)
+                }
+                if (data.visualize_state) {
+                    setMermaidCode(data.visualize_state)
+                    setShowVisualizer(true)
+                }
             })
             .catch(() => setSessionError('Failed to load session.'))
 
-        // SocketIO connection
         const socket = io({ transports: ['websocket', 'polling'] })
         socketRef.current = socket
 
@@ -80,6 +96,14 @@ export default function CollabViewerPage() {
             setConnectedUsers(state.connected_users || 0)
         })
 
+        socket.on('user_joined', (data) => {
+            setConnectedUsers(data.connected_users || 0)
+        })
+
+        socket.on('user_left', (data) => {
+            setConnectedUsers(data.connected_users || 0)
+        })
+
         socket.on('chat_update', (entry) => {
             setMessages(prev => [
                 ...prev,
@@ -89,7 +113,6 @@ export default function CollabViewerPage() {
         })
 
         socket.on('annotation_update', (data) => {
-            // Only add annotation if it's for the currently viewed PDF
             if (data.filename === currentPdfRef.current || !data.filename) {
                 setAnnotations(prev => {
                     const valid = Array.isArray(prev) ? prev : []
@@ -101,26 +124,22 @@ export default function CollabViewerPage() {
         socket.on('pdf_switched', (data) => {
             setPdfFilename(data.filename)
             setAnnotations(data.annotations || [])
-            setMessages(prev => [...prev, {
-                role: 'bot',
-                content: `<span style="color:#06b6d4;">📄 <b>${data.username}</b> switched the document to <strong>${data.filename}</strong></span>`
-            }])
         })
 
-        socket.on('user_joined', (data) => {
-            setConnectedUsers(data.connected_users)
-            setMessages(prev => [...prev, {
-                role: 'bot',
-                content: `<span style="color:#a855f7;">👤 ${data.username} joined the session</span>`
-            }])
+        socket.on('quiz_started', (data) => {
+            setQuizActive(true)
+            setMessages(prev => [...prev, { role: 'bot', content: data.chat_entry.aiResponse }])
         })
 
-        socket.on('user_left', (data) => {
-            setConnectedUsers(data.connected_users)
-            setMessages(prev => [...prev, {
-                role: 'bot',
-                content: `<span style="color:#94a3b8;">👤 ${data.username} left the session</span>`
-            }])
+        socket.on('quiz_answered', (data) => {
+            setMessages(prev => [...prev, { role: 'bot', content: data.chat_entry.aiResponse }])
+            if (!data.quiz_state) setQuizActive(false)
+        })
+
+        socket.on('visualize_update', (data) => {
+            setMermaidCode(data.mermaidCode)
+            setShowVisualizer(true)
+            setLoadingVisualize(false)
         })
 
         return () => {
@@ -129,168 +148,245 @@ export default function CollabViewerPage() {
         }
     }, [sessionId])
 
-    // ─── Auto-scroll chat ──────────────────────────────────────
+    // Auto-scroll
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages, loading])
 
-    // ─── Draw annotations on canvas ────────────────────────────
+    // ─── Redraw annotations ───────────────────────────────────
     useEffect(() => {
         const canvas = canvasRef.current
         if (!canvas) return
         const ctx = canvas.getContext('2d')
-
-        // Match canvas size to container
-        const container = canvas.parentElement
-        canvas.width = container.offsetWidth
-        canvas.height = container.offsetHeight
-
-        // Clear
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-        // Draw all annotations
-        const validAnnotations = Array.isArray(annotations) ? annotations : []
-        validAnnotations.forEach(ann => {
-            if (ann.type === 'highlight') {
-                ctx.fillStyle = ann.color || 'rgba(251,191,36,0.3)'
-                ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
-            } else if (ann.type === 'draw' && ann.points?.length > 1) {
-                ctx.strokeStyle = ann.color || '#ef4444'
-                ctx.lineWidth = 3
-                ctx.lineCap = 'round'
-                ctx.lineJoin = 'round'
+        annotations.forEach(ann => {
+            if (!ann || !ann.type) return
+            ctx.strokeStyle = ann.color || '#FFB830'
+            ctx.lineWidth = ann.lineWidth || 3
+            if (ann.type === 'draw' && ann.path?.length > 1) {
                 ctx.beginPath()
-                ctx.moveTo(ann.points[0].x, ann.points[0].y)
-                ann.points.forEach(p => ctx.lineTo(p.x, p.y))
+                ctx.moveTo(ann.path[0].x, ann.path[0].y)
+                ann.path.forEach(p => ctx.lineTo(p.x, p.y))
                 ctx.stroke()
+            } else if (ann.type === 'highlight') {
+                ctx.fillStyle = (ann.color || '#FFB830') + '55'
+                ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
             }
         })
     }, [annotations])
 
-    // ─── Helpers ───────────────────────────────────────────────
-    const addMessage = (role, content) => {
-        setMessages(prev => [...prev, { role, content }])
+    // ─── Canvas resize ───────────────────────────────────────
+    useEffect(() => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const ro = new ResizeObserver(() => {
+            canvas.width = canvas.offsetWidth
+            canvas.height = canvas.offsetHeight
+        })
+        ro.observe(canvas)
+        return () => ro.disconnect()
+    }, [])
+
+    // ─── Canvas mouse handlers ────────────────────────────────
+    const handleCanvasMouseDown = (e) => {
+        if (annotationTool === 'none') return
+        const rect = canvasRef.current.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+        setIsDrawing(true)
+        if (annotationTool === 'draw') setCurrentPath([{ x, y }])
+        if (annotationTool === 'highlight') {
+            canvasRef.current._startX = x
+            canvasRef.current._startY = y
+        }
     }
 
-    const sendMessage = async (text) => {
-        if (!text.trim() || loading) return
-        addMessage('user', text)
-        setInput('')
-        setLoading(true)
+    const handleCanvasMouseMove = (e) => {
+        if (!isDrawing || annotationTool === 'none') return
+        const canvas = canvasRef.current
+        const rect = canvas.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+        const ctx = canvas.getContext('2d')
 
+        if (annotationTool === 'draw') {
+            setCurrentPath(prev => {
+                const next = [...prev, { x, y }]
+                ctx.strokeStyle = annotationColor
+                ctx.lineWidth = 3
+                ctx.lineCap = 'round'
+                if (next.length > 1) {
+                    ctx.beginPath()
+                    ctx.moveTo(next[next.length - 2].x, next[next.length - 2].y)
+                    ctx.lineTo(x, y)
+                    ctx.stroke()
+                }
+                return next
+            })
+        } else if (annotationTool === 'highlight') {
+            const sx = canvas._startX
+            const sy = canvas._startY
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            annotations.forEach(ann => {
+                if (!ann || !ann.type) return
+                ctx.strokeStyle = ann.color || '#FFB830'
+                ctx.lineWidth = ann.lineWidth || 3
+                if (ann.type === 'draw' && ann.path?.length > 1) {
+                    ctx.beginPath()
+                    ctx.moveTo(ann.path[0].x, ann.path[0].y)
+                    ann.path.forEach(p => ctx.lineTo(p.x, p.y))
+                    ctx.stroke()
+                } else if (ann.type === 'highlight') {
+                    ctx.fillStyle = (ann.color || '#FFB830') + '55'
+                    ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+                }
+            })
+            ctx.fillStyle = annotationColor + '55'
+            ctx.fillRect(sx, sy, x - sx, y - sy)
+        }
+    }
+
+    const handleCanvasMouseUp = (e) => {
+        if (!isDrawing) return
+        setIsDrawing(false)
+        const canvas = canvasRef.current
+        const rect = canvas.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+
+        let annotation = null
+        if (annotationTool === 'draw' && currentPath.length > 1) {
+            annotation = { type: 'draw', path: currentPath, color: annotationColor, lineWidth: 3 }
+        } else if (annotationTool === 'highlight') {
+            annotation = {
+                type: 'highlight',
+                x: canvas._startX, y: canvas._startY,
+                width: x - canvas._startX, height: y - canvas._startY,
+                color: annotationColor
+            }
+        }
+
+        if (annotation) {
+            setAnnotations(prev => [...(Array.isArray(prev) ? prev : []), annotation])
+            socketRef.current?.emit('new_annotation', { sessionId, annotation, filename: currentPdfRef.current })
+        }
+        setCurrentPath([])
+    }
+
+    // ─── Actions ──────────────────────────────────────────────
+    const handleSummarize = async () => {
+        setLoading(true)
         try {
-            const res = await fetch(`/api/session/${sessionId}/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text, sender: username })
+            await fetch(`/api/session/${sessionId}/summarize`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sender: username })
+            })
+        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Network Error.' }]) }
+        finally { setLoading(false) }
+    }
+
+    const handleMindmap = async () => {
+        setLoading(true)
+        try {
+            await fetch(`/api/session/${sessionId}/mindmap`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sender: username })
+            })
+        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Network Error.' }]) }
+        finally { setLoading(false) }
+    }
+
+    const handleVisualize = async () => {
+        setShowVisualizer(true)
+        setLoadingVisualize(true)
+        setMermaidCode('')
+        setSelectedNode(null)
+        setSubtopicContent('')
+        try {
+            await fetch(`/api/session/${sessionId}/visualize`, { method: 'POST' })
+        } catch {}
+    }
+
+    const handleNodeClick = async (id, label) => {
+        setSelectedNode({ id, label })
+        setSubtopicContent('')
+        setLoadingSubtopic(true)
+        try {
+            const res = await fetch('/visualize/subtopic', { 
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subtopic_name: label })
             })
             const data = await res.json()
-            if (data.error) {
-                addMessage('bot', data.error)
+            setSubtopicContent(data.content || 'Failed to load content.')
+        } catch { setSubtopicContent('Error connecting to server.') }
+        finally { setLoadingSubtopic(false) }
+    }
+
+    const handleStartQuiz = async () => {
+        setLoading(true)
+        try {
+            await fetch(`/api/session/${sessionId}/quiz/start`, { method: 'POST' })
+        } catch {} 
+        finally { setLoading(false) }
+    }
+
+    const handleYTSearch = async () => {
+        if (!ytInput.trim()) return
+        setShowYT(false)
+        const query = ytInput
+        setYtInput('')
+        setLoading(true)
+        try {
+            const res = await fetch('/chat', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: `search youtube for: ${query}` })
+            })
+            const data = await res.json()
+            setMessages(prev => [...prev, { role: 'bot', content: data.response || 'YouTube search opened in browser!' }])
+        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Error loading YouTube.' }]) }
+        finally { setLoading(false) }
+    }
+
+    // ─── Send message ─────────────────────────────────────────
+    const sendMessage = async (text) => {
+        if (!text.trim() || loading) return
+        if (!quizActive) { 
+            // Only add local user message visual for non-quiz, quiz chat entries are formulated by server wrapper.
+            // Actually ViewerPage also adds local user message, let's just send the endpoint.
+        }
+        setInput('')
+        setLoading(true)
+        try {
+            const endpoint = quizActive ? `/api/session/${sessionId}/quiz/answer` : `/api/session/${sessionId}/chat`
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(quizActive ? { answer: text, sender: username } : { message: text, sender: username })
+            })
+            if (!res.ok) {
+                const data = await res.json()
+                setMessages(prev => [...prev, { role: 'bot', content: data.error || 'Error getting response.' }])
             }
-            // Response is broadcast via socket, no need to add locally
-            // unless the socket event doesn't fire for the sender
         } catch {
-            addMessage('bot', 'Network error. Please try again.')
+            setMessages(prev => [...prev, { role: 'bot', content: 'Network error. Please try again.' }])
         } finally {
             setLoading(false)
         }
     }
 
-    const handleCopyLink = async () => {
-        const link = window.location.href
-        await navigator.clipboard.writeText(link)
+    // ─── Switch PDF ───────────────────────────────────────────
+    const handleSwitchPdf = (fname) => {
+        if (fname === pdfFilename) return
+        setPdfFilename(fname)
+        socketRef.current?.emit('switch_pdf', { sessionId, filename: fname, username })
+    }
+
+    // ─── Copy link ────────────────────────────────────────────
+    const handleCopyLink = () => {
+        navigator.clipboard.writeText(window.location.href)
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
-    }
-
-    const handleSwitchPdf = (filename) => {
-        if (filename === pdfFilename || loading) return
-        
-        // Optimistically set the filename and drop current annotations
-        setPdfFilename(filename)
-        setAnnotations([])
-        
-        socketRef.current?.emit('switch_pdf', {
-            sessionId,
-            filename,
-            username
-        })
-    }
-
-    // ─── Canvas mouse handlers for annotations ─────────────────
-    const getCanvasPos = (e) => {
-        const canvas = canvasRef.current
-        const rect = canvas.getBoundingClientRect()
-        return { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    }
-
-    const handleCanvasMouseDown = (e) => {
-        if (annotationTool === 'none') return
-        setIsDrawing(true)
-        const pos = getCanvasPos(e)
-        setCurrentPath([pos])
-    }
-
-    const handleCanvasMouseMove = (e) => {
-        if (!isDrawing || annotationTool === 'none') return
-        const pos = getCanvasPos(e)
-        setCurrentPath(prev => [...prev, pos])
-
-        // Live preview for drawing
-        if (annotationTool === 'draw') {
-            const canvas = canvasRef.current
-            const ctx = canvas.getContext('2d')
-            if (currentPath.length > 0) {
-                const last = currentPath[currentPath.length - 1]
-                ctx.strokeStyle = annotationColor
-                ctx.lineWidth = 3
-                ctx.lineCap = 'round'
-                ctx.beginPath()
-                ctx.moveTo(last.x, last.y)
-                ctx.lineTo(pos.x, pos.y)
-                ctx.stroke()
-            }
-        }
-    }
-
-    const handleCanvasMouseUp = () => {
-        if (!isDrawing || annotationTool === 'none') return
-        setIsDrawing(false)
-
-        let annotation = null
-
-        if (annotationTool === 'highlight' && currentPath.length >= 2) {
-            const start = currentPath[0]
-            const end = currentPath[currentPath.length - 1]
-            annotation = {
-                type: 'highlight',
-                x: Math.min(start.x, end.x),
-                y: Math.min(start.y, end.y),
-                width: Math.abs(end.x - start.x),
-                height: Math.abs(end.y - start.y),
-                color: annotationColor.replace(')', ',0.3)').replace('rgb', 'rgba'),
-                user: username
-            }
-        } else if (annotationTool === 'draw' && currentPath.length >= 2) {
-            annotation = {
-                type: 'draw',
-                points: currentPath,
-                color: annotationColor,
-                user: username
-            }
-        }
-
-        if (annotation) {
-            setAnnotations(prev => [...prev, annotation])
-            socketRef.current?.emit('new_annotation', {
-                sessionId,
-                annotation,
-                filename: pdfFilename
-            })
-        }
-
-        setCurrentPath([])
     }
 
     // ─── Error state ──────────────────────────────────────────
@@ -309,7 +405,7 @@ export default function CollabViewerPage() {
         )
     }
 
-    // ─── Render ──────────────────────────────────────────────
+    // ─── Render ───────────────────────────────────────────────
     return (
         <div className="viewer-page">
             {/* Collab Banner */}
@@ -328,14 +424,18 @@ export default function CollabViewerPage() {
                     <button className="collab-copy-btn" onClick={handleCopyLink}>
                         {copied ? '✅ Copied!' : '📋 Copy Link'}
                     </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => navigate('/')}>← Exit</button>
                 </div>
             </div>
 
             <div className="viewer-layout">
-                {/* Sidebar - only show if multiple PDFs */}
+                {/* Sidebar — only show for multi-PDF */}
                 {multiFilenames.length > 0 && (
                     <div className="viewer-sidebar">
-                        <div className="sidebar-header">Documents</div>
+                        <div className="sidebar-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+                            Documents
+                        </div>
                         <div className="sidebar-list">
                             {multiFilenames.map((fname, idx) => (
                                 <div
@@ -343,7 +443,7 @@ export default function CollabViewerPage() {
                                     className={`sidebar-item${pdfFilename === fname ? ' active' : ''}`}
                                     onClick={() => handleSwitchPdf(fname)}
                                 >
-                                    <span className="sidebar-item-icon">📄</span>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
                                     <span className="sidebar-item-name">{fname}</span>
                                 </div>
                             ))}
@@ -354,9 +454,13 @@ export default function CollabViewerPage() {
                 {/* PDF Panel with Annotation Overlay */}
                 <div className="pdf-panel">
                     <div className="pdf-panel-header">
-                        <span className="pdf-panel-title">
-                            📄 {pdfFilename || 'Loading...'}
-                        </span>
+                        <div className="pdf-panel-info">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                            <span className="pdf-panel-title">{pdfFilename || 'Loading...'}</span>
+                        </div>
+                        {showVisualizer && (
+                            <button className="btn btn-ghost btn-sm" onClick={() => setShowVisualizer(false)}>✕ Close Flowchart</button>
+                        )}
                         {/* Annotation Toolbar */}
                         <div className="annotation-toolbar">
                             <button
@@ -384,33 +488,81 @@ export default function CollabViewerPage() {
                         </div>
                     </div>
 
-                    <div className="pdf-canvas-container">
-                        {pdfFilename && (
-                            <iframe
-                                className="pdf-iframe"
-                                src={`/api/session/${sessionId}/pdf`}
-                                title="PDF Viewer"
-                                key={pdfFilename} // Important to force reload
+                    {showVisualizer ? (
+                        <div className="visualizer-content" style={{flex: 1, position: 'relative', overflow: 'auto', background: 'var(--surface)'}}>
+                            {loadingVisualize ? (
+                                <div className="loading-state">
+                                    <div className="spinner" />
+                                    <div className="loading-text">Generating flowchart with AI...</div>
+                                </div>
+                            ) : mermaidCode ? (
+                                <div className="mermaid-wrapper">
+                                    <MermaidDiagram code={mermaidCode} onNodeClick={handleNodeClick} />
+                                </div>
+                            ) : (
+                                <div className="empty-state">No flowchart generated.</div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="pdf-canvas-container">
+                            {pdfFilename && (
+                                <iframe
+                                    className="pdf-iframe"
+                                    src={`/api/session/${sessionId}/pdf`}
+                                    title="PDF Viewer"
+                                    key={pdfFilename}
+                                />
+                            )}
+                            <canvas
+                                ref={canvasRef}
+                                className={`annotation-canvas${annotationTool !== 'none' ? ' active' : ''}`}
+                                onMouseDown={handleCanvasMouseDown}
+                                onMouseMove={handleCanvasMouseMove}
+                                onMouseUp={handleCanvasMouseUp}
+                                onMouseLeave={handleCanvasMouseUp}
                             />
-                        )}
-                        <canvas
-                            ref={canvasRef}
-                            className={`annotation-canvas${annotationTool !== 'none' ? ' active' : ''}`}
-                            onMouseDown={handleCanvasMouseDown}
-                            onMouseMove={handleCanvasMouseMove}
-                            onMouseUp={handleCanvasMouseUp}
-                            onMouseLeave={handleCanvasMouseUp}
-                        />
-                    </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Chat Panel */}
                 <div className="chat-panel">
                     <div className="chat-panel-header">
-                        <div className="chat-panel-title">🤖 AI Assistant</div>
-                        <div className="chat-panel-sub">
-                            Collaborative session • {connectedUsers} user{connectedUsers !== 1 ? 's' : ''} connected
+                        <div className="chat-panel-header-top">
+                            <div className="chat-ai-avatar">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                            </div>
+                            <div>
+                                <div className="chat-panel-title">AI Assistant</div>
+                                <div className="chat-panel-sub">
+                                    Collaborative • {connectedUsers} user{connectedUsers !== 1 ? 's' : ''} connected
+                                </div>
+                            </div>
                         </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="action-buttons">
+                        <button className="action-btn" onClick={handleSummarize} disabled={loading}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="17" y1="10" x2="3" y2="10" /><line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="14" x2="3" y2="14" /><line x1="17" y1="18" x2="3" y2="18" /></svg>
+                            {multiFilenames.length > 1 ? 'Summarize All' : 'Summarize'}
+                        </button>
+                        <button className="action-btn" onClick={handleMindmap} disabled={loading || loadingVisualize}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 1v4" /><path d="M12 19v4" /><path d="M4.22 4.22l2.83 2.83" /><path d="M16.95 16.95l2.83 2.83" /></svg>
+                            {multiFilenames.length > 1 ? 'Mind Map (All)' : 'Mind Map'}
+                        </button>
+                        <button className="action-btn" onClick={handleVisualize} disabled={loading || loadingVisualize}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                            {multiFilenames.length > 1 ? 'Visualize (All)' : 'Visualize'}
+                        </button>
+                        <button className="action-btn" onClick={handleStartQuiz} disabled={loading}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+                            {multiFilenames.length > 1 ? 'Quiz All' : 'Quiz'}
+                        </button>
+                        <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
+                            YouTube
+                        </button>
                     </div>
 
                     {/* Messages */}
@@ -418,7 +570,11 @@ export default function CollabViewerPage() {
                         {messages.map((m, i) => (
                             <div key={i} className={`message ${m.role}`}>
                                 <div className="msg-avatar">
-                                    {m.role === 'bot' ? '🤖' : '👤'}
+                                    {m.role === 'bot' ? (
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                    ) : (
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                                    )}
                                 </div>
                                 <div
                                     className="msg-bubble"
@@ -429,7 +585,9 @@ export default function CollabViewerPage() {
 
                         {loading && (
                             <div className="typing-indicator">
-                                <div className="msg-avatar">🤖</div>
+                                <div className="msg-avatar">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                </div>
                                 <div className="typing-dots">
                                     <span /><span /><span />
                                 </div>
@@ -438,12 +596,29 @@ export default function CollabViewerPage() {
                         <div ref={messagesEndRef} />
                     </div>
 
-                    {/* Input Area */}
+                    {/* Input */}
                     <div className="chat-input-area">
+                        {showYT && (
+                            <div className="youtube-search-bar">
+                                <input
+                                    className="chat-input"
+                                    placeholder="What to search on YouTube?"
+                                    value={ytInput}
+                                    onChange={e => setYtInput(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter') handleYTSearch()
+                                        if (e.key === 'Escape') setShowYT(false)
+                                    }}
+                                    autoFocus
+                                />
+                                <button className="send-btn" onClick={handleYTSearch}>Search</button>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowYT(false)}>✕</button>
+                            </div>
+                        )}
                         <div className="chat-input-row">
                             <input
                                 className="chat-input"
-                                placeholder="Ask a question (shared with all users)…"
+                                placeholder={quizActive ? 'Type A / B / C / D or your answer…' : 'Ask a question (shared with all users)…'}
                                 value={input}
                                 onChange={e => setInput(e.target.value)}
                                 onKeyDown={e => {
@@ -460,12 +635,46 @@ export default function CollabViewerPage() {
                                 onClick={() => sendMessage(input)}
                                 disabled={loading || !input.trim()}
                             >
-                                Send
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
                             </button>
                         </div>
                     </div>
                 </div>
             </div>
+
+            {selectedNode && (
+                <div className="subtopic-modal-overlay" onClick={() => setSelectedNode(null)}>
+                    <div className="subtopic-modal" onClick={e => e.stopPropagation()}>
+                        <div className="subtopic-modal-header">
+                            <h2>{selectedNode.label}</h2>
+                            <button className="close-modal-btn" onClick={() => setSelectedNode(null)}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                            </button>
+                        </div>
+                        <div className="subtopic-modal-body">
+                            {loadingSubtopic ? (
+                                <div className="loading-state">
+                                    <div className="spinner" />
+                                    <div className="loading-text">Loading notes from AI...</div>
+                                </div>
+                            ) : (
+                                <div 
+                                    className="markdown-content" 
+                                    dangerouslySetInnerHTML={{ 
+                                        __html: subtopicContent
+                                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                            .replace(/#{3,}\s*(.*?)\n/g, '<h3>$1</h3>')
+                                            .replace(/#{1,2}\s*(.*?)\n/g, '<h2>$1</h2>')
+                                            .replace(/\n\n/g, '<br><br>')
+                                            .replace(/\n- /g, '<br>• ') 
+                                    }} 
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

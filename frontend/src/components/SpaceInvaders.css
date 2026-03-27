@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+.space-mono {
+  font-family: 'Space Mono', 'Courier New', Courier, monospace;
+}
+
+.space-invaders-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #0b0c10;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  z-index: 9999;
+}
+
+.si-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 15px 30px;
+  background: #1f2833;
+  border-bottom: 2px solid #66fcf1;
+}
+
+.si-header h2 {
+  margin: 0;
+  color: #66fcf1;
+  text-transform: uppercase;
+  font-size: 1.5em;
+}
+
+.si-stats {
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.si-close-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 5px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.si-question-board {
+  padding: 20px;
+  text-align: center;
+  font-size: 1.5rem;
+  background: rgba(31, 40, 51, 0.8);
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.si-play-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(circle at center, #111 0%, #000 100%);
+  display: flex;
+}
+
+.si-play-area canvas {
+  flex: 1;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.si-controls {
+  padding: 10px;
+  text-align: center;
+  background: #000;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.si-feedback {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 3.5rem;
+  font-weight: bold;
+  z-index: 10;
+  text-transform: uppercase;
+  animation: popIn 0.3s ease-out forwards;
+}
+
+.si-feedback.correct {
+  color: #22c55e;
+  text-shadow: 0 0 20px #22c55e;
+}
+
+.si-feedback.incorrect {
+  color: #ef4444;
+  text-shadow: 0 0 20px #ef4444;
+}
+
+.si-feedback.timeout {
+  color: #796569;
+  text-shadow: 0 0 20px #7f7477;
+}
+
+.si-timer {
+  font-weight: bold;
+  padding: 2px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+@keyframes popIn {
+  0% {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
