@@ -347,20 +347,18 @@ export default function CollabViewerPage() {
         finally { setLoading(false) }
     }
 
-    const handleYTSearch = async () => {
+    const handleYTSummarize = async () => {
         if (!ytInput.trim()) return
         setShowYT(false)
-        const query = ytInput
+        const url = ytInput
         setYtInput('')
         setLoading(true)
         try {
-            const res = await fetch('/chat', {
+            await fetch(`/api/session/${sessionId}/youtube/summarize`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: `search youtube for: ${query}` })
+                body: JSON.stringify({ url, sender: username })
             })
-            const data = await res.json()
-            setMessages(prev => [...prev, { role: 'bot', content: data.response || 'YouTube search opened in browser!' }])
-        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Error loading YouTube.' }]) }
+        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Error loading YouTube summary.' }]) }
         finally { setLoading(false) }
     }
 
@@ -619,7 +617,7 @@ export default function CollabViewerPage() {
                         </button>
                         <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
-                            YouTube
+                            YT Summarize
                         </button>
                     </div>
 
@@ -660,16 +658,16 @@ export default function CollabViewerPage() {
                             <div className="youtube-search-bar">
                                 <input
                                     className="chat-input"
-                                    placeholder="What to search on YouTube?"
+                                    placeholder="Paste YouTube Link for Summary..."
                                     value={ytInput}
                                     onChange={e => setYtInput(e.target.value)}
                                     onKeyDown={e => {
-                                        if (e.key === 'Enter') handleYTSearch()
+                                        if (e.key === 'Enter') handleYTSummarize()
                                         if (e.key === 'Escape') setShowYT(false)
                                     }}
                                     autoFocus
                                 />
-                                <button className="send-btn" onClick={handleYTSearch}>Search</button>
+                                <button className="send-btn" onClick={handleYTSummarize}>Summarize</button>
                                 <button className="btn btn-ghost btn-sm" onClick={() => setShowYT(false)}>✕</button>
                             </div>
                         )}
