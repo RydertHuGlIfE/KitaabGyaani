@@ -770,8 +770,10 @@ def create_session():
         'chat_messages': [],
         'connected_users': 0,
         'quiz': None,
-        'visualize_state': None
+        'visualize_state': None,
+        'whiteboard_annotations': []
     }
+
 
     for fname in (multi_filenames if multi_filenames else [filename]):
         collab_sessions[session_id]['annotations'][fname] = []
@@ -795,8 +797,10 @@ def session_info(session_id):
         "chat_messages": sess['chat_messages'],
         "connected_users": sess['connected_users'],
         "quiz": sess['quiz'],
-        "visualize_state": sess['visualize_state']
+        "visualize_state": sess['visualize_state'],
+        "whiteboard_annotations": sess.get('whiteboard_annotations', [])
     })
+
 
 
 @app.route('/api/session/<session_id>/pdf')
@@ -1094,8 +1098,10 @@ def handle_join_session(data):
         'chat_messages': sess['chat_messages'],
         'connected_users': sess['connected_users'],
         'quiz': sess['quiz'],
-        'visualize_state': sess['visualize_state']
+        'visualize_state': sess['visualize_state'],
+        'whiteboard_annotations': sess.get('whiteboard_annotations', [])
     })
+
     emit('user_joined', {
         'username': username,
         'connected_users': sess['connected_users']
@@ -1144,8 +1150,31 @@ def handle_clear_annotations(data):
     emit('annotations_cleared', {'filename': filename}, room=session_id)
 
 
+@socketio.on('new_whiteboard_annotation')
+def handle_new_whiteboard_annotation(data):
+    session_id = data.get('sessionId')
+    annotation = data.get('annotation')
+    sess = collab_sessions.get(session_id)
+    if not sess or not annotation:
+        return
+    if 'whiteboard_annotations' not in sess:
+        sess['whiteboard_annotations'] = []
+    sess['whiteboard_annotations'].append(annotation)
+    emit('whiteboard_update', {'annotation': annotation}, room=session_id, include_self=False)
+
+
+@socketio.on('clear_whiteboard')
+def handle_clear_whiteboard(data):
+    session_id = data.get('sessionId')
+    sess = collab_sessions.get(session_id)
+    if not sess:
+        return
+    sess['whiteboard_annotations'] = []
+    emit('whiteboard_cleared', room=session_id)
+
 
 @socketio.on('switch_pdf')
+
 def handle_switch_pdf(data):
     session_id = data.get('sessionId')
     filename = data.get('filename')

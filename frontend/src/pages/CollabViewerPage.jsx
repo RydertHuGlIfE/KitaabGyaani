@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { io } from 'socket.io-client'
 import MermaidDiagram from '../components/MermaidDiagram'
 
 export default function CollabViewerPage() {
     const [searchParams] = useSearchParams()
-    const sessionId = searchParams.get('sessionid')
+    const sessionId = searchParams.get('sessionid') || searchParams.get('sessionId')
     const navigate = useNavigate()
+
 
     const [pdfFilename, setPdfFilename] = useState('')
     const [multiFilenames, setMultiFilenames] = useState([])
@@ -28,7 +29,14 @@ export default function CollabViewerPage() {
     const [subtopicContent, setSubtopicContent] = useState('')
     const [loadingVisualize, setLoadingVisualize] = useState(false)
     const [loadingSubtopic, setLoadingSubtopic] = useState(false)
-
+ 
+    // Whiteboard State
+    const [showWhiteboard, setShowWhiteboard] = useState(false)
+    const [whiteboardHeight, setWhiteboardHeight] = useState(250)
+    const [whiteboardAnnotations, setWhiteboardAnnotations] = useState([])
+    const whiteboardCanvasRef = useRef()
+    const isResizingRef = useRef(false)
+ 
     // Annotation tool state
     const [annotationTool, setAnnotationTool] = useState('none') // 'none' | 'highlight' | 'draw' | 'eraser'
     const [annotationColor, setAnnotationColor] = useState('#FFB830')
@@ -63,7 +71,9 @@ export default function CollabViewerPage() {
                 setPdfFilename(data.pdf_filename)
                 setMultiFilenames(data.multi_pdf_filenames || [])
                 setAnnotations(data.annotations || [])
+                setWhiteboardAnnotations(data.whiteboard_annotations || [])
                 setConnectedUsers(data.connected_users || 0)
+
 
                 const existingMsgs = (data.chat_messages || []).flatMap(entry => [
                     { role: 'user', content: `<b>${entry.sender}:</b> ${entry.message}` },
@@ -93,8 +103,10 @@ export default function CollabViewerPage() {
 
         socket.on('session_state', (state) => {
             setAnnotations(state.annotations || [])
+            setWhiteboardAnnotations(state.whiteboard_annotations || [])
             setConnectedUsers(state.connected_users || 0)
         })
+
 
         socket.on('user_joined', (data) => {
             setConnectedUsers(data.connected_users || 0)
@@ -147,6 +159,17 @@ export default function CollabViewerPage() {
                 setAnnotations([])
             }
         })
+ 
+        socket.on('whiteboard_update', (data) => {
+            console.log('Received whiteboard sync:', data)
+            setWhiteboardAnnotations(prev => [...prev, data.annotation])
+        })
+ 
+        socket.on('whiteboard_cleared', () => {
+            setWhiteboardAnnotations([])
+        })
+
+
 
 
         return () => {
@@ -186,6 +209,39 @@ export default function CollabViewerPage() {
             }
         })
     }, [annotations])
+ 
+    // ─── Whiteboard Redraw logic ──────────────────────────────
+    const redrawWhiteboard = useCallback(() => {
+        const canvas = whiteboardCanvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+ 
+        whiteboardAnnotations.forEach(ann => {
+            if (!ann || !ann.type) return
+            ctx.strokeStyle = ann.color || '#FFB830'
+            ctx.lineWidth = ann.lineWidth || 3
+            if (ann.type === 'draw' && ann.path?.length > 1) {
+                ctx.beginPath()
+                ctx.moveTo(ann.path[0].x, ann.path[0].y)
+                ann.path.forEach(p => ctx.lineTo(p.x, p.y))
+                ctx.stroke()
+            } else if (ann.type === 'highlight') {
+                ctx.fillStyle = (ann.color || '#FFB830') + '55'
+                ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+            } else if (ann.type === 'eraser' && ann.path?.length > 1) {
+                ann.path.forEach(p => {
+                    ctx.clearRect(p.x - 10, p.y - 10, 20, 20)
+                })
+            }
+        })
+    }, [whiteboardAnnotations])
+ 
+    useEffect(() => {
+        redrawWhiteboard()
+    }, [redrawWhiteboard, showWhiteboard])
+
+
 
     // ─── Canvas resize ───────────────────────────────────────
     useEffect(() => {
@@ -198,6 +254,47 @@ export default function CollabViewerPage() {
         ro.observe(canvas)
         return () => ro.disconnect()
     }, [])
+
+    useEffect(() => {
+        const canvas = whiteboardCanvasRef.current
+        if (!canvas) return
+        const ro = new ResizeObserver(() => {
+            if (canvas.width !== canvas.offsetWidth || canvas.height !== canvas.offsetHeight) {
+                canvas.width = canvas.offsetWidth
+                canvas.height = canvas.offsetHeight
+                redrawWhiteboard()
+            }
+        })
+        ro.observe(canvas)
+        return () => ro.disconnect()
+    }, [showWhiteboard, redrawWhiteboard])
+
+
+    // --- Optimized Whiteboard Resizing ---
+    const [isResizingWB, setIsResizingWB] = useState(false)
+    const startResizing = (e) => {
+        e.preventDefault()
+        setIsResizingWB(true)
+        isResizingRef.current = true
+        document.addEventListener('mousemove', handleResizing)
+        document.addEventListener('mouseup', stopResizing)
+    }
+
+    const handleResizing = (e) => {
+        if (!isResizingRef.current) return
+        const newHeight = window.innerHeight - e.clientY - 40 // adjusted padding
+        const clampedHeight = Math.max(100, Math.min(window.innerHeight * 0.7, newHeight))
+        document.documentElement.style.setProperty('--whiteboard-height', `${clampedHeight}px`)
+    }
+
+    const stopResizing = () => {
+        setIsResizingWB(false)
+        isResizingRef.current = false
+        document.removeEventListener('mousemove', handleResizing)
+        document.removeEventListener('mouseup', stopResizing)
+    }
+
+
 
     // ─── Canvas mouse handlers ────────────────────────────────
     const handleCanvasMouseDown = (e) => {
@@ -296,6 +393,73 @@ export default function CollabViewerPage() {
         }
         setCurrentPath([])
     }
+
+    // --- Whiteboard Canvas Handlers ---
+    const handleWBMouseDown = (e) => {
+        if (annotationTool === 'none') return
+        const rect = whiteboardCanvasRef.current.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+        setIsDrawing(true)
+        if (annotationTool === 'draw') setCurrentPath([{ x, y }])
+    }
+
+    const handleWBMouseMove = (e) => {
+        if (!isDrawing || annotationTool === 'none') return
+        const canvas = whiteboardCanvasRef.current
+        const rect = canvas.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+        const ctx = canvas.getContext('2d')
+
+        if (annotationTool === 'draw') {
+            setCurrentPath(prev => {
+                const next = [...prev, { x, y }]
+                ctx.strokeStyle = annotationColor
+                ctx.lineWidth = 3
+                ctx.lineCap = 'round'
+                if (next.length > 1) {
+                    ctx.beginPath()
+                    ctx.moveTo(next[next.length - 2].x, next[next.length - 2].y)
+                    ctx.lineTo(x, y)
+                    ctx.stroke()
+                }
+                return next
+            })
+        } else if (annotationTool === 'eraser') {
+            setCurrentPath(prev => {
+                const next = [...prev, { x, y }]
+                ctx.clearRect(x - 10, y - 10, 20, 20)
+                return next
+            })
+        }
+    }
+
+    const handleWBMouseUp = (e) => {
+        if (!isDrawing) return
+        setIsDrawing(false)
+        let annotation = null
+        if (annotationTool === 'draw' && currentPath.length > 1) {
+            annotation = { type: 'draw', path: currentPath, color: annotationColor, lineWidth: 3 }
+        } else if (annotationTool === 'eraser' && currentPath.length > 1) {
+            annotation = { type: 'eraser', path: currentPath, lineWidth: 20 }
+        }
+
+        if (annotation) {
+            setWhiteboardAnnotations(prev => [...prev, annotation])
+            console.log('Sending whiteboard sync:', annotation)
+            socketRef.current?.emit('new_whiteboard_annotation', { sessionId, annotation })
+        }
+        setCurrentPath([])
+    }
+
+
+    const handleClearWhiteboard = () => {
+        if (!window.confirm("Clear the entire whiteboard for everyone?")) return
+        setWhiteboardAnnotations([])
+        socketRef.current?.emit('clear_whiteboard', { sessionId })
+    }
+
 
     const handleClearAnnotations = () => {
         if (!window.confirm("Are you sure you want to clear all annotations for this document? This will clear them for everyone.")) return
@@ -563,7 +727,16 @@ export default function CollabViewerPage() {
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" /></svg>
                             </button>
+                            <button
+                                className={`anno-btn${showWhiteboard ? ' active' : ''}`}
+                                onClick={() => setShowWhiteboard(p => !p)}
+                                title="Toggle Whiteboard"
+                                style={{ marginLeft: '8px', color: 'var(--teal)' }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+                            </button>
                         </div>
+
 
                     </div>
 
@@ -583,25 +756,54 @@ export default function CollabViewerPage() {
                             )}
                         </div>
                     ) : (
-                        <div className="pdf-canvas-container">
-                            {pdfFilename && (
-                                <iframe
-                                    className="pdf-iframe"
-                                    src={`/api/session/${sessionId}/pdf`}
-                                    title="PDF Viewer"
-                                    key={pdfFilename}
+                        <div className="pdf-viewport-container" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                            <div className="pdf-canvas-container" style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+                                {pdfFilename && (
+                                    <iframe
+                                        className="pdf-iframe"
+                                        src={`/api/session/${sessionId}/pdf`}
+                                        title="PDF Viewer"
+                                        key={pdfFilename}
+                                    />
+                                )}
+                                <canvas
+                                    ref={canvasRef}
+                                    className={`annotation-canvas${annotationTool !== 'none' ? ' active' : ''}`}
+                                    onMouseDown={handleCanvasMouseDown}
+                                    onMouseMove={handleCanvasMouseMove}
+                                    onMouseUp={handleCanvasMouseUp}
+                                    onMouseLeave={handleCanvasMouseUp}
                                 />
+                            </div>
+
+                            {showWhiteboard && (
+                                <>
+                                    <div 
+                                        className="whiteboard-resizer" 
+                                        onMouseDown={startResizing}
+                                    />
+                                    {isResizingWB && <div className="whiteboard-resizer-overlay" />}
+                                    <div className="whiteboard-container">
+
+                                        <div className="whiteboard-header" style={{ padding: '4px 12px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-muted)' }}>COLLABORATIVE WHITEBOARD</span>
+                                            <button className="btn btn-ghost btn-sm" onClick={handleClearWhiteboard} style={{ padding: '2px 8px', fontSize: '10px' }}>Clear</button>
+                                        </div>
+                                        <canvas
+                                            ref={whiteboardCanvasRef}
+                                            className="whiteboard-canvas"
+                                            style={{ flex: 1, cursor: annotationTool !== 'none' ? 'crosshair' : 'default' }}
+                                            onMouseDown={handleWBMouseDown}
+                                            onMouseMove={handleWBMouseMove}
+                                            onMouseUp={handleWBMouseUp}
+                                            onMouseLeave={handleWBMouseUp}
+                                        />
+                                    </div>
+                                </>
                             )}
-                            <canvas
-                                ref={canvasRef}
-                                className={`annotation-canvas${annotationTool !== 'none' ? ' active' : ''}`}
-                                onMouseDown={handleCanvasMouseDown}
-                                onMouseMove={handleCanvasMouseMove}
-                                onMouseUp={handleCanvasMouseUp}
-                                onMouseLeave={handleCanvasMouseUp}
-                            />
                         </div>
                     )}
+
                 </div>
 
                 {/* Chat Panel */}
