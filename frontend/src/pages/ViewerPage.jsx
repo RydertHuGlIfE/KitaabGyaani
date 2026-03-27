@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MermaidDiagram from '../components/MermaidDiagram'
 import SpaceInvadersGame from '../components/SpaceInvadersGame'
@@ -217,7 +217,7 @@ export default function ViewerPage() {
         finally { setLoading(false) }
     }
 
-    const handleMcqAnswer = async (answerText) => {
+    const handleMcqAnswer = useCallback(async (answerText) => {
         try {
             const res = await fetch('/quiz/answer', {
                 method: 'POST',
@@ -246,7 +246,7 @@ export default function ViewerPage() {
         } catch (e) {
             return { is_correct: false }
         }
-    }
+    }, [addMessage]);
 
     const handleStartCollab = async () => {
         addMessage('user', 'Start a collaborative session')

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Stars, Text, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
@@ -196,23 +196,57 @@ class ErrorBoundary extends React.Component {
 
 export default function SpaceInvadersGame({ gameState, onAnswer, onClose }) {
   const [feedback, setFeedback] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(7);
+  const [timerActive, setTimerActive] = useState(false);
 
-  const handleHit = (char) => {
+  // Handle Answer/Hit
+  const handleHit = useCallback((char) => {
+    setTimerActive(false);
+    if (!char) {
+      setFeedback('timeout');
+      onAnswer('').then(res => {
+         // Lives are updated via gameState
+      });
+      return;
+    }
+
     onAnswer(char).then(res => {
         if (res.is_correct) setFeedback('correct');
         else setFeedback('incorrect');
     });
-  };
+  }, [onAnswer]);
 
+  // Reset timer on new question
   useEffect(() => {
      setFeedback(null);
+     setTimeLeft(7);
+     if (gameState) {
+       setTimerActive(true);
+     }
   }, [gameState]);
+
+  // Countdown logic
+  useEffect(() => {
+    let interval = null;
+    if (timerActive && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft(prev => prev - 1);
+      }, 1000);
+    } else if (timeLeft === 0 && timerActive) {
+      setTimerActive(false);
+      handleHit(null);
+    }
+    return () => clearInterval(interval);
+  }, [timerActive, timeLeft, handleHit]);
 
   return (
     <div className="space-invaders-container">
       <div className="si-header">
         <h2 className="space-mono">SPACE INVADERS MCQ MODE</h2>
         <div className="si-stats space-mono">
+           <span className="si-timer" style={{ color: timeLeft <= 3 ? '#ff003c' : '#00ffcc', marginRight: '20px' }}>
+             TIME: {timeLeft}s
+           </span>
            <span>LIVES: {gameState?.lives || 0}</span>
            <button onClick={onClose} className="si-close-btn space-mono">QUIT</button>
         </div>
@@ -225,7 +259,7 @@ export default function SpaceInvadersGame({ gameState, onAnswer, onClose }) {
       <div className="si-play-area">
         {feedback && (
            <div className={`si-feedback ${feedback} space-mono`}>
-              {feedback === 'correct' ? 'CORRECT!' : `INCORRECT!`}
+              {feedback === 'correct' ? 'CORRECT!' : feedback === 'timeout' ? 'NOT ANSWERED!' : 'INCORRECT!'}
            </div>
         )}
         
