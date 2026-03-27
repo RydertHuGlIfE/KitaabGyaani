@@ -3,7 +3,8 @@ import os
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file
 
-import google.generativeai as genai
+# import google.generativeai as genai
+import requests
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 import webbrowser
@@ -28,12 +29,47 @@ app.secret_key = "nullisgreat"
 # SocketIO for real-time collaborative sessions
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
-    "temperature": 0.7,
-    "max_output_tokens": 20480
-})
+# model = genai.GenerativeModel("gemini-flash-lite-latest", generation_config={
+#     "temperature": 0.7,
+#     "max_output_tokens": 20480
+# })
+
+OLLAMA_API_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "qwen3.5:4b"  # Change to "llama3:8b" or your preferred model
+
+def generate_with_ollama(prompt):
+    """Call local Ollama model."""
+    try:
+        response = requests.post(
+            OLLAMA_API_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "temperature": 0.7,
+            },
+            timeout=120
+        )
+        response.raise_for_status()
+        return response.json()["response"]
+    except Exception as e:
+        print(f"Ollama error: {str(e)}")
+        raise
+
+def generate_json_with_ollama(prompt):
+    """Generate JSON from Ollama."""
+    response_text = generate_with_ollama(prompt)
+    
+    # Clean up markdown formatting
+    if response_text.startswith("```json"):
+        response_text = response_text.replace("```json", "").replace("```", "")
+    elif response_text.startswith("```"):
+        response_text = response_text.replace("```", "")
+    
+    response_text = response_text.strip()
+    return json.loads(response_text)
 
 # In-memory storage - no files saved to disk (Vercel compatible)
 uploaded_pdf_text = {}
@@ -268,7 +304,6 @@ IMPORTANT OUTPUT RULES:
 - Output valid HTML only (no Markdown, no backslash).
 - Do NOT use ``` or mention 'html'.
 - Use <h3> for titles, <ol><li> for lists, <strong> for bold, <p> for paragraphs.
-- If multiple documents are present, specify which document you are referring to when answering.
 - Answer as concisely as possible.
 
 USER QUESTION:
@@ -281,7 +316,8 @@ USER QUESTION:
         return jsonify({"response": f"<p>Opened YouTube search for <strong>{topic}</strong> in your browser! 🎥</p>", "is_html": True})
 
     try:
-        response = model.generate_content(prompt)
+        # response = model.generate_content(prompt)
+        response = generate_with_ollama(prompt)
         if not response.candidates:
             return jsonify({"error": "AI failed to generate a response (empty candidates)."}), 500
             
@@ -321,11 +357,7 @@ Output valid HTML only using <h3>, <ol>, <li>, <strong>, <p>. Be concise.
 """
 
     try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate a response (empty candidates)."}), 500
-            
-        ai_response = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        ai_response = generate_with_ollama(prompt)
         return jsonify({"response": ai_response, "is_html": True})
     except Exception as e:
         return jsonify({"error": f"Error generating summary: {str(e)}"}), 500
@@ -338,47 +370,25 @@ def start_quiz():
         return jsonify({"error": "No PDF content found."}), 400
 
     seed = random.randint(1000, 9999)
-    prompt = f"""
-    You are a quiz generator. Create questions based on these {doc_count} document(s).
+    prompt = f"""You are a quiz generator. Create 5 MCQs and 5 theoretical questions based on these {doc_count} document(s).
 
-    PDF CONTENT:
-    {pdf_content}
+PDF CONTENT:
+{pdf_content}
 
-    Use seed {seed}.
-    Generate 5 MCQs and 5 theoretical questions based on the content of all documents.
-
-    Use the unique identifier **{seed}** to ensure variety.
-
-    Generate 5 multiple-choice questions and 5 theoretical questions based on the document.
-    For MCQs, return options in this exact format:
-    ["A) option text" \\n, "B) option text" \\n, "C) option text" \\n, "D) option text" \\n]
-
-    Return **ONLY a valid JSON object** with no other text.
-    {{
-      "mcq": [
-        {{"q": "question text", "options": ["A) ...","B) ...","C) ...","D) ..."], "answer": "B"}}
-      ],
-      "theory": [
-        "Theory question 1?",
-        "Theory question 2?"
-      ]
-    }}
-    """
+Use seed {seed}. Return ONLY a valid JSON object with no other text:
+{{
+  "mcq": [
+    {{"q": "question text", "options": ["A) ...","B) ...","C) ...","D) ..."], "answer": "B"}}
+  ],
+  "theory": [
+    "Theory question 1?",
+    "Theory question 2?"
+  ]
+}}
+"""
 
     try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate a quiz (empty candidates)."}), 500
-            
-        raw_text = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
-        raw_text = raw_text.strip()
-
-        if raw_text.startswith("```"):
-            raw_text = raw_text.strip("`")
-        if raw_text.lower().startswith("json"):
-            raw_text = raw_text[4:].strip()
-
-        quiz_data = json.loads(raw_text)
+        quiz_data = generate_json_with_ollama(prompt)
 
         session['quiz'] = {
             "mcq": quiz_data["mcq"],
@@ -457,8 +467,7 @@ def quiz_answer():
         q_index = quiz["current_theory"]
         question = quiz["theory"][q_index]
 
-        eval_prompt = f"""
-        Evaluate this theoretical answer:
+        eval_prompt = f"""Evaluate this theoretical answer:
         Question: {question}
         User Answer: {user_answer}
 
@@ -470,11 +479,7 @@ def quiz_answer():
 
         Return clean bullet points only.
         """
-        response = model.generate_content(eval_prompt)
-        if not response.candidates:
-            feedback = "AI failed to evaluate the answer (empty candidates)."
-        else:
-            feedback = response.text if hasattr(response, 'text') else response.candidates[0].content.parts[0].text
+        feedback = generate_with_ollama(eval_prompt)
 
         quiz["answers"].append({
             "question": question,
@@ -519,23 +524,22 @@ def mindmap():
     
     prompt = f"""You are a sophisticated AI. Create a detailed mindmap visual breakdown for these {doc_count} document(s).
     
-    PDF CONTENT:
-    {pdf_content}
-    
-    Structure the mindmap to cover all key aspects of all uploaded files.
-    
-    IMPORTANT OUTPUT RULES:
-    - Output valid HTML only (no Markdown, no backslashes).
-    - Use <h3> for titles, <ol><li> for lists, <strong> for bold.
-    - Be extremely comprehensive.
-    """
+PDF CONTENT:
+{pdf_content}
+
+Structure the mindmap to cover all key aspects of all uploaded files.
+
+IMPORTANT OUTPUT RULES:
+- Output valid HTML only (no Markdown, no backslashes).
+- Use <h3> for titles, <ol><li> for lists, <strong> for bold.
+- Be extremely comprehensive.
+"""
     
     try:
-        response = model.generate_content(prompt)
-        ai_res = "".join([p.text for p in response.candidates[0].content.parts])
+        ai_res = generate_with_ollama(prompt)
         return jsonify({"response": ai_res, "is_html": True})
     except Exception as e:
-        return jsonify({"error": f"Error Generating the mind map {str(e)}"}), 500
+        return jsonify({"error": f"Error Generating the mind map: {str(e)}"}), 500
     
 @app.route("/visualize", methods=['POST'])
 def visualize():
@@ -543,28 +547,23 @@ def visualize():
     if not pdf_content:
         return jsonify({"error": "No PDF loaded"}), 400
     
-    prompt = f"""
-    Generate a valid Mermaid.js flowchart code based on these {doc_count} document(s).
-    
-    PDF CONTENT:
-    {pdf_content}
+    prompt = f"""Generate a valid Mermaid.js flowchart code based on these {doc_count} document(s).
 
-    Requirements:  
-    - Output only the Mermaid.js code (no explanations, no markdown, no extra text).  
-    - Start strictly with one of: "flowchart TD", "flowchart LR", "graph TD", or "graph LR" (choose based on best readability).  
-    - Include all major subtopics and their dependencies in a logical hierarchy.  
-    - Ensure the code is syntactically correct and does not break when rendered.  
-    - Ensure to remove the round brackets as well as the square brackets from the mermaid code to make the text simpler so that it does not break the rendering.  
-    - Use clear and concise labels for nodes (avoid long sentences).  
-    - Verify the diagram flows smoothly and looks balanced.
-    """
+PDF CONTENT:
+{pdf_content}
+
+Requirements:  
+- Output only the Mermaid.js code (no explanations, no markdown, no extra text).  
+- Start strictly with one of: "flowchart TD", "flowchart LR", "graph TD", or "graph LR" (choose based on best readability).  
+- Include all major subtopics and their dependencies in a logical hierarchy.  
+- Ensure the code is syntactically correct and does not break when rendered.  
+- Ensure to remove the round brackets as well as the square brackets from the mermaid code to make the text simpler so that it does not break the rendering.  
+- Use clear and concise labels for nodes (avoid long sentences).  
+- Verify the diagram flows smoothly and looks balanced.
+"""
     
     try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate a flowchart (empty candidates)."}), 500
-            
-        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        ai_res = generate_with_ollama(prompt)
         
         # Clean up code if it was wrapped in markdown
         ai_res = ai_res.strip()
@@ -591,26 +590,21 @@ def visualize_subtopic():
     if not pdf_content:
         return jsonify({"error": "No PDF loaded"}), 400
         
-    prompt = f"""
-    Generate clear and concise revision notes for the subtopic "{subtopic_name}" based on these {doc_count} document(s).
-    
-    PDF CONTENT:
-    {pdf_content}
+    prompt = f"""Generate clear and concise revision notes for the subtopic "{subtopic_name}" based on these {doc_count} document(s).
 
-    Requirements:  
-    - Present the notes in a structured, easy-to-read format (using short paragraphs or bullet points).  
-    - Cover all the key concepts, definitions, formulas (if any), and important points needed for quick revision.  
-    - Keep the content descriptive but concise — enough for quick understanding without being overly detailed.  
-    - Ensure accuracy based ONLY on the provided document(s).
-    - Format output in Markdown.
-    """
+PDF CONTENT:
+{pdf_content}
+
+Requirements:  
+- Present the notes in a structured, easy-to-read format (using short paragraphs or bullet points).  
+- Cover all the key concepts, definitions, formulas (if any), and important points needed for quick revision.  
+- Keep the content descriptive but concise — enough for quick understanding without being overly detailed.  
+- Ensure accuracy based ONLY on the provided document(s).
+- Format output in Markdown.
+"""
     
     try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate subtopic content (empty candidates)."}), 500
-            
-        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        ai_res = generate_with_ollama(prompt)
         return jsonify({"content": ai_res.strip()})
     except Exception as e:
         return jsonify({"error": f"Error generating subtopic content: {str(e)}"}), 500
@@ -722,12 +716,7 @@ USER QUESTION:
 {user_message}"""
 
     try:
-        response = model.generate_content(prompt)
-        if not response.candidates:
-            return jsonify({"error": "AI failed to generate a response."}), 500
-        ai_response = response.text if hasattr(response, 'text') else "".join(
-            [p.text for p in response.candidates[0].content.parts]
-        )
+        ai_response = generate_with_ollama(prompt)
         chat_entry = {
             'sender': sender,
             'message': user_message,
