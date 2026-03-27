@@ -2343,18 +2343,40 @@ a {
   justify-content: center;
   transition: var(--transition);
   box-shadow: var(--shadow-sm);
+  color: var(--text);
 }
 
-.anno-btn:hover {
-  background: var(--yellow-light);
-  border-color: var(--yellow);
+/* Color each annotation button */
+.anno-btn:nth-child(1) {
+  color: var(--icon-chat);
+}
+
+.anno-btn:nth-child(2) {
+  color: var(--icon-mindmap);
+}
+
+.anno-btn:nth-child(3) {
+  color: #a855f7;
+}
+
+.anno-btn:nth-child(4) {
+  color: var(--icon-quiz);
+}
+
+.anno-btn:hover:not(.active) {
   transform: translateY(-1px);
 }
 
+.anno-btn:hover {
+  border-color: currentColor;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
 .anno-btn.active {
-  background: var(--yellow-light);
-  border-color: var(--yellow);
-  box-shadow: 3px 3px 0px var(--yellow);
+  border-color: currentColor;
+  background: var(--surface);
+  box-shadow: 3px 3px 0px currentColor;
 }
 
 .anno-color-picker {

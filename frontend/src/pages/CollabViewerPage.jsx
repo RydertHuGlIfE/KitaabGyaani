@@ -30,7 +30,7 @@ export default function CollabViewerPage() {
     const [loadingSubtopic, setLoadingSubtopic] = useState(false)
 
     // Annotation tool state
-    const [annotationTool, setAnnotationTool] = useState('none') // 'none' | 'highlight' | 'draw'
+    const [annotationTool, setAnnotationTool] = useState('none') // 'none' | 'highlight' | 'draw' | 'eraser'
     const [annotationColor, setAnnotationColor] = useState('#FFB830')
     const [isDrawing, setIsDrawing] = useState(false)
     const [currentPath, setCurrentPath] = useState([])
@@ -70,7 +70,7 @@ export default function CollabViewerPage() {
                     { role: 'bot', content: entry.aiResponse }
                 ])
                 setMessages([
-                    { role: 'bot', content: `👋 Welcome to the collaborative session! You're viewing <strong>${data.pdf_filename}</strong>` },
+                    { role: 'bot', content: `Welcome to the collaborative session! You're viewing <strong>${data.pdf_filename}</strong>` },
                     ...existingMsgs
                 ])
 
@@ -172,6 +172,10 @@ export default function CollabViewerPage() {
             } else if (ann.type === 'highlight') {
                 ctx.fillStyle = (ann.color || '#FFB830') + '55'
                 ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+            } else if (ann.type === 'eraser' && ann.path?.length > 1) {
+                ann.path.forEach(p => {
+                    ctx.clearRect(p.x - 10, p.y - 10, 20, 20)
+                })
             }
         })
     }, [annotations])
@@ -224,6 +228,12 @@ export default function CollabViewerPage() {
                 }
                 return next
             })
+        } else if (annotationTool === 'eraser') {
+            setCurrentPath(prev => {
+                const next = [...prev, { x, y }]
+                ctx.clearRect(x - 10, y - 10, 20, 20)
+                return next
+            })
         } else if (annotationTool === 'highlight') {
             const sx = canvas._startX
             const sy = canvas._startY
@@ -240,6 +250,10 @@ export default function CollabViewerPage() {
                 } else if (ann.type === 'highlight') {
                     ctx.fillStyle = (ann.color || '#FFB830') + '55'
                     ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+                } else if (ann.type === 'eraser' && ann.path?.length > 1) {
+                    ann.path.forEach(p => {
+                        ctx.clearRect(p.x - 10, p.y - 10, 20, 20)
+                    })
                 }
             })
             ctx.fillStyle = annotationColor + '55'
@@ -258,6 +272,8 @@ export default function CollabViewerPage() {
         let annotation = null
         if (annotationTool === 'draw' && currentPath.length > 1) {
             annotation = { type: 'draw', path: currentPath, color: annotationColor, lineWidth: 3 }
+        } else if (annotationTool === 'eraser' && currentPath.length > 1) {
+            annotation = { type: 'eraser', path: currentPath, lineWidth: 20 }
         } else if (annotationTool === 'highlight') {
             annotation = {
                 type: 'highlight',
@@ -417,12 +433,23 @@ export default function CollabViewerPage() {
                 </div>
                 <div className="collab-banner-center">
                     <span className="collab-users-badge">
-                        👥 {connectedUsers} online
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                        {connectedUsers} online
                     </span>
                 </div>
                 <div className="collab-banner-right">
-                    <button className="collab-copy-btn" onClick={handleCopyLink}>
-                        {copied ? '✅ Copied!' : '📋 Copy Link'}
+                    <button className="collab-copy-btn" onClick={handleCopyLink} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {copied ? (
+                            <>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
+                                Copied!
+                            </>
+                        ) : (
+                            <>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg>
+                                Copy Link
+                            </>
+                        )}
                     </button>
                     <button className="btn btn-ghost btn-sm" onClick={() => navigate('/')}>← Exit</button>
                 </div>
@@ -467,17 +494,30 @@ export default function CollabViewerPage() {
                                 className={`anno-btn${annotationTool === 'none' ? ' active' : ''}`}
                                 onClick={() => setAnnotationTool('none')}
                                 title="Pointer"
-                            >🖱️</button>
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3l7.07 7.07m0 0l10.93 10.93M10.07 10.07L3 17m0 0h7.07m0 0v-7.07" /></svg>
+                            </button>
                             <button
                                 className={`anno-btn${annotationTool === 'highlight' ? ' active' : ''}`}
                                 onClick={() => setAnnotationTool('highlight')}
                                 title="Highlight"
-                            >🟨</button>
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12l5.586-5.586a2 2 0 0 1 2.828 0l5.586 5.586M5 12L3 14m0 0l7 7h8l2-2" /><path d="M12 7l-5 5m5-5l5 5" /></svg>
+                            </button>
                             <button
                                 className={`anno-btn${annotationTool === 'draw' ? ' active' : ''}`}
                                 onClick={() => setAnnotationTool('draw')}
                                 title="Draw"
-                            >✏️</button>
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 17.6v3.4a1 1 0 0 0 1 1h3.4M15.4 3H20a1 1 0 0 1 1 1v4.6M7 7l10 10M3.5 18.5l14.14-14.14a2 2 0 0 1 2.83 0l2.83 2.83a2 2 0 0 1 0 2.83l-14.14 14.14" /></svg>
+                            </button>
+                            <button
+                                className={`anno-btn${annotationTool === 'eraser' ? ' active' : ''}`}
+                                onClick={() => setAnnotationTool('eraser')}
+                                title="Eraser"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 3H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-6 14l7-7m-7 7H5m14 0l-7-7m7 7v-4" /><circle cx="18" cy="18" r="1.5" /></svg>
+                            </button>
                             <input
                                 type="color"
                                 value={annotationColor}
