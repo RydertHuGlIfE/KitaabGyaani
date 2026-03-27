@@ -398,6 +398,20 @@ export default function CollabViewerPage() {
         socketRef.current?.emit('switch_pdf', { sessionId, filename: fname, username })
     }
 
+    const handleSyncSession = () => {
+        setLoading(true)
+        socketRef.current?.emit('join_session', { sessionId, username })
+        fetch(`/api/session/${sessionId}/info`)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.error) {
+                    setAnnotations(data.annotations || [])
+                    setConnectedUsers(data.connected_users || 0)
+                }
+            })
+            .finally(() => setLoading(false))
+    }
+
     // ─── Copy link ────────────────────────────────────────────
     const handleCopyLink = () => {
         navigator.clipboard.writeText(window.location.href)
@@ -438,6 +452,10 @@ export default function CollabViewerPage() {
                     </span>
                 </div>
                 <div className="collab-banner-right">
+                    <button className="collab-copy-btn" onClick={handleSyncSession} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+                        Sync State
+                    </button>
                     <button className="collab-copy-btn" onClick={handleCopyLink} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         {copied ? (
                             <>

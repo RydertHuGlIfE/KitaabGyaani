@@ -9,8 +9,9 @@ export default function MermaidDiagram({ code, onNodeClick }) {
       try {
         mermaid.initialize({
           startOnLoad: false,
-          theme: 'default',
-          flowchart: { curve: 'basis' }
+          theme: 'forest',
+          securityLevel: 'loose',
+          flowchart: { curve: 'basis', htmlLabels: true, useMaxWidth: true }
         });
 
         const id = `mermaid-${Date.now()}`;
@@ -33,14 +34,18 @@ export default function MermaidDiagram({ code, onNodeClick }) {
         }).catch(err => {
           console.error("Mermaid API error:", err);
           if (chartRef.current) {
-            chartRef.current.innerHTML = '<p class="text-red-500">Error rendering diagram. Please check the syntax.</p>';
+            chartRef.current.innerHTML = `
+              <div class="mermaid-error">
+                <p>⚠️ Visualizer Syntax Error</p>
+                <small>The AI generated complex syntax. Try clicking "Visualize" again to regenerate.</small>
+              </div>
+            `;
           }
         });
       } catch (error) {
         console.error("Error rendering mermaid diagram:", error);
         if (chartRef.current) {
-          chartRef.current.innerHTML =
-            '<p class="text-red-500">Error rendering diagram. Please check the syntax.</p>';
+          chartRef.current.innerHTML = '<p>Error initializing diagram.</p>';
         }
       }
     }

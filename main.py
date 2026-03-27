@@ -40,28 +40,48 @@ def clean_mermaid_syntax(text):
     
     # Remove markdown blocks
     text = text.strip()
-    if text.startswith("```mermaid"): text = text.replace("```mermaid", "", 1)
-    if text.startswith("```"): text = text.replace("```", "", 1)
-    if text.endswith("```"): text = text.rsplit("```", 1)[0]
-    text = text.strip()
+    if "```mermaid" in text:
+        text = text.split("```mermaid")[1].split("```")[0].strip()
+    elif "```" in text:
+        text = text.split("```")[1].split("```")[0].strip()
     
     lines = text.split('\n')
     cleaned_lines = []
+    
+    # Ensure it starts with flowchart TD if nothing specified
+    has_header = False
     for line in lines:
-        # Look for Node labels like ID[Label] or ID(Label) or ID((Label))
-        if '[' in line and ']' in line:
+        if any(h in line for h in ["flowchart", "graph", "sequenceDiagram", "gantt"]):
+            has_header = True
+            break
+    if not has_header:
+        cleaned_lines.append("flowchart TD")
+
+    for line in lines:
+        line = line.strip()
+        if not line: continue
+        
+        # Handle Node labels to be super strict for Mermaid v10
+        # Replace all [label] with ["label"] and (label) with ("label")
+        if '[' in line and ']' in line and '["' not in line:
             parts = line.split('[', 1)
             suffix = parts[1].rsplit(']', 1)
-            label = suffix[0].replace('"', "'") # Replace internal " with '
+            label = suffix[0].replace('"', "'").replace('(', '').replace(')', '')
             line = f'{parts[0]}["{label}"]{suffix[1]}'
-        elif '(' in line and ')' in line:
+        elif '(' in line and ')' in line and '("' not in line:
             parts = line.split('(', 1)
             suffix = parts[1].rsplit(')', 1)
-            label = suffix[0].replace('"', "'")
+            label = suffix[0].replace('"', "'").replace('[', '').replace(']', '')
             line = f'{parts[0]}("{label}"){suffix[1]}'
+            
         cleaned_lines.append(line)
      
-    return "\n".join(cleaned_lines)
+    # Final safety: remove mermaid keyword if it leaked in
+    result = "\n".join(cleaned_lines)
+    if result.startswith("mermaid"):
+        result = result[7:].strip()
+        
+    return result
 
 # In-memory storage - no files saved to disk (Vercel compatible)
 uploaded_pdf_text = {}
@@ -634,11 +654,11 @@ def visualize():
 
     Requirements:  
     - Output ONLY raw Mermaid code (no markdown blocks, no explanations).
-    - Start with "flowchart TD" or "graph TD".
+    - Use "flowchart TD" syntax.
     - IMPORTANT: All node labels MUST be wrapped in double quotes: ID["Label Text"].
     - DO NOT use double quotes INSIDE a label text. Use single quotes if needed.
-    - Remove any parentheses () or square brackets [] from INSIDE the label text.
-    - Use clear and concise labels.
+    - Remove any special characters like parentheses (), square brackets [], or semicolons ; from INSIDE the label text.
+    - Ensure nodes are clearly separated.
     """
     
     try:
@@ -892,11 +912,11 @@ def session_visualize(session_id):
     PDF CONTENT:
     {pdf_content}
     Rules: 
-    - Use graph TD. 
+    - Use "flowchart TD" syntax. 
     - Output ONLY raw Mermaid code (no markdown blocks, no explanations).
     - IMPORTANT: All node labels MUST be wrapped in double quotes: ID["Label Text"].
     - DO NOT use double quotes INSIDE a label text.
-    - Remove any parentheses () or square brackets [] from INSIDE the label text.
+    - Remove any special characters like parentheses (), square brackets [], or semicolons ; from INSIDE the label text.
     """
     try:
         response = model.generate_content(prompt)
@@ -1030,10 +1050,6 @@ def session_quiz_answer(session_id):
             
         return jsonify({"success": True})
 
-
-# ══════════════════════════════════════════════════════════════════════
-# SOCKETIO EVENTS
-# ══════════════════════════════════════════════════════════════════════
 
 @socketio.on('join_session')
 def handle_join_session(data):
