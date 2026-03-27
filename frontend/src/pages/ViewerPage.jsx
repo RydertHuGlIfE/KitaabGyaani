@@ -18,7 +18,7 @@ export default function ViewerPage() {
     const [mcqGameState, setMcqGameState] = useState(null)
     const [showYT, setShowYT] = useState(false)
     const [ytInput, setYtInput] = useState('')
-    
+
     // Visualizer States
     const [showVisualizer, setShowVisualizer] = useState(false)
     const [loadingVisualize, setLoadingVisualize] = useState(false)
@@ -68,8 +68,8 @@ export default function ViewerPage() {
                 if (data.result) {
                     const correct = data.result.is_correct
                     addMessage('bot', correct
-                        ? '✅ Correct!'
-                        : `❌ Incorrect. Right answer: <strong>${data.result.correct_answer}</strong>`)
+                        ? ' Correct!'
+                        : ` Incorrect. Right answer: <strong>${data.result.correct_answer}</strong>`)
                 }
                 if (data.message) addMessage('bot', data.message)
                 if (data.feedback) addMessage('bot', `<b>Feedback:</b><br>${data.feedback}`)
@@ -150,8 +150,8 @@ export default function ViewerPage() {
                 addMessage('bot', data.error || 'Error creating flowchart.')
                 setShowVisualizer(false)
             }
-        } catch { 
-            addMessage('bot', 'Error creating flowchart.') 
+        } catch {
+            addMessage('bot', 'Error creating flowchart.')
             setShowVisualizer(false)
         } finally {
             setLoadingVisualize(false)
@@ -163,8 +163,8 @@ export default function ViewerPage() {
         setSubtopicContent('')
         setLoadingSubtopic(true)
         try {
-            const res = await fetch('/visualize/subtopic', { 
-                method: 'POST', 
+            const res = await fetch('/visualize/subtopic', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ subtopic_name: label })
             })
@@ -190,10 +190,10 @@ export default function ViewerPage() {
         addMessage('user', `Start a ${mode === 'mcq_game' ? 'Space Invaders MCQ' : 'Theory'} Quiz`)
         setLoading(true)
         try {
-            const res = await fetch('/quiz/start', { 
-                method: 'POST', 
+            const res = await fetch('/quiz/start', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode }) 
+                body: JSON.stringify({ mode })
             })
             const data = await res.json()
             if (data.question || data.options) {
@@ -225,7 +225,7 @@ export default function ViewerPage() {
                 body: JSON.stringify({ answer: answerText })
             })
             const data = await res.json()
-            
+
             if (data.game_over) {
                 setTimeout(() => {
                     setMcqGameState(null)
@@ -338,11 +338,11 @@ export default function ViewerPage() {
                     </div>
                 </div>
             )}
-            
+
             {quizMode === 'mcq_game' && mcqGameState && (
-                <SpaceInvadersGame 
-                    gameState={mcqGameState} 
-                    onAnswer={handleMcqAnswer} 
+                <SpaceInvadersGame
+                    gameState={mcqGameState}
+                    onAnswer={handleMcqAnswer}
                     onClose={() => {
                         setQuizMode('none')
                         setMcqGameState(null)
@@ -557,17 +557,17 @@ export default function ViewerPage() {
                                     <div className="loading-text">Loading notes from AI...</div>
                                 </div>
                             ) : (
-                                <div 
-                                    className="markdown-content" 
-                                    dangerouslySetInnerHTML={{ 
+                                <div
+                                    className="markdown-content"
+                                    dangerouslySetInnerHTML={{
                                         __html: subtopicContent
                                             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                                             .replace(/\*(.*?)\*/g, '<em>$1</em>')
                                             .replace(/#{3,}\s*(.*?)\n/g, '<h3>$1</h3>')
                                             .replace(/#{1,2}\s*(.*?)\n/g, '<h2>$1</h2>')
                                             .replace(/\n\n/g, '<br><br>')
-                                            .replace(/\n- /g, '<br>• ') 
-                                    }} 
+                                            .replace(/\n- /g, '<br>• ')
+                                    }}
                                 />
                             )}
                         </div>
