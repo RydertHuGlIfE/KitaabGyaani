@@ -428,7 +428,7 @@ export default function ViewerPage() {
                     <div className="chat-panel-header">
                         <div className="chat-panel-header-top">
                             <div className="chat-ai-avatar">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                             </div>
                             <div>
                                 <div className="chat-panel-title">AI Assistant</div>
@@ -479,7 +479,7 @@ export default function ViewerPage() {
                             <div key={i} className={`message ${m.role}`}>
                                 <div className="msg-avatar">
                                     {m.role === 'bot' ? (
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                        <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                                     ) : (
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                                     )}
@@ -494,7 +494,7 @@ export default function ViewerPage() {
                         {loading && (
                             <div className="typing-indicator">
                                 <div className="msg-avatar">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                    <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                                 </div>
                                 <div className="typing-dots">
                                     <span /><span /><span />
