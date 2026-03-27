@@ -74,6 +74,9 @@
 
   /* PDF iframe */
   --pdf-bg: #ffffff;
+
+  /* Night Light */
+  --night-light-intensity: 0.4; /* 40% intensity */
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -131,6 +134,9 @@
   --icon-quiz-bg: rgba(255, 142, 142, 0.15);
 
   --pdf-bg: #1a1a2e;
+
+  /* Night Light */
+  --night-light-intensity: 0.35; /* Slightly less in dark mode for comfort */
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -2297,6 +2303,18 @@ a {
   flex: 1;
   position: relative;
   overflow: hidden;
+}
+
+body.night-light-active {
+  filter: sepia(var(--night-light-intensity)) saturate(1.1) brightness(0.95);
+  transition: filter 0.5s ease;
+}
+
+.theme-toggle.active {
+  background: var(--yellow-light);
+  color: var(--yellow);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--yellow);
 }
 
 .pdf-canvas-container .pdf-iframe {
