@@ -1131,6 +1131,20 @@ def handle_new_annotation(data):
     emit('annotation_update', {'annotation': annotation, 'filename': filename}, room=session_id, include_self=False)
 
 
+@socketio.on('clear_annotations')
+def handle_clear_annotations(data):
+    session_id = data.get('sessionId')
+    filename = data.get('filename')
+    sess = collab_sessions.get(session_id)
+    if not sess or not filename:
+        return
+    # Clear annotations for this PDF in memory
+    sess['annotations'][filename] = []
+    # Broadcast to everyone in the room
+    emit('annotations_cleared', {'filename': filename}, room=session_id)
+
+
+
 @socketio.on('switch_pdf')
 def handle_switch_pdf(data):
     session_id = data.get('sessionId')
@@ -1185,8 +1199,6 @@ def session_youtube_summarize(session_id):
     except Exception as e:
         return jsonify({"error": f"YouTube Error: {str(e)[:100]}"}), 500
 
-
-# ── React SPA routes ──────────────────────────────────────────────────────────
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
