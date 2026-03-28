@@ -2531,3 +2531,456 @@ body.night-light-active {
   height: 100%;
   touch-action: none;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   SCREEN RECORDER
+   ═══════════════════════════════════════════════════════════════ */
+.screen-recorder-modal {
+  max-width: 480px;
+  width: 90vw;
+  height: auto;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.screen-recorder-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: var(--border-width) solid var(--border-light);
+}
+
+.screen-recorder-header h2 {
+  font-size: 1.1rem;
+  margin: 0;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+}
+
+.screen-recorder-header h2 svg {
+  color: var(--coral);
+}
+
+.screen-recorder-body {
+  padding: 24px;
+}
+
+/* ── Setup ── */
+.recorder-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.recorder-setup-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-lg);
+  background: var(--coral-light);
+  border: var(--border-width) solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+[data-theme="dark"] .recorder-setup-icon {
+  background: rgba(255, 142, 142, 0.1);
+}
+
+.recorder-setup-desc {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 340px;
+  margin: 0;
+}
+
+.recorder-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  border: 2px solid var(--border-light);
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: var(--transition);
+  width: 100%;
+  max-width: 320px;
+  user-select: none;
+}
+
+.recorder-toggle-row:hover {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.recorder-toggle-switch {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--border-light);
+  border: 2px solid var(--border);
+  position: relative;
+  transition: all 0.25s ease;
+  flex-shrink: 0;
+}
+
+.recorder-toggle-switch.on {
+  background: var(--teal);
+  border-color: var(--border);
+}
+
+.recorder-toggle-knob {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--border);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.recorder-toggle-switch.on .recorder-toggle-knob {
+  left: 22px;
+}
+
+.recorder-toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+
+.recorder-toggle-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recorder-toggle-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.recorder-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--danger-bg, rgba(239, 68, 68, 0.08));
+  border: 2px solid var(--danger-border, rgba(239, 68, 68, 0.2));
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--danger, #ef4444);
+  font-weight: 500;
+  width: 100%;
+  max-width: 320px;
+}
+
+.recorder-start-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.recorder-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+/* ── Recording ── */
+.recorder-active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 20px;
+  padding: 8px 0;
+}
+
+.recorder-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border: 2px solid var(--border);
+  background: var(--surface-2);
+}
+
+.recorder-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.recorder-status-dot.live {
+  background: #ef4444;
+  animation: recorderPulse 1s ease-in-out infinite;
+}
+
+.recorder-status-dot.paused {
+  background: var(--yellow);
+}
+
+@keyframes recorderPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.recorder-timer {
+  font-size: 56px;
+  font-weight: 900;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 4px;
+  color: var(--text);
+  line-height: 1;
+}
+
+/* Waveform */
+.recorder-waveform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 40px;
+}
+
+.recorder-waveform-bar {
+  width: 4px;
+  height: 8px;
+  background: var(--coral);
+  border-radius: 2px;
+  transition: height 0.1s ease;
+}
+
+.recorder-waveform.active .recorder-waveform-bar {
+  animation: waveformBounce 0.8s ease-in-out infinite alternate;
+}
+
+.recorder-waveform.active .recorder-waveform-bar:nth-child(1) { animation-delay: 0s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(2) { animation-delay: 0.05s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(3) { animation-delay: 0.1s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(4) { animation-delay: 0.15s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(5) { animation-delay: 0.2s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(6) { animation-delay: 0.25s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(7) { animation-delay: 0.3s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(8) { animation-delay: 0.25s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(9) { animation-delay: 0.2s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(10) { animation-delay: 0.15s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(11) { animation-delay: 0.1s; }
+.recorder-waveform.active .recorder-waveform-bar:nth-child(12) { animation-delay: 0.05s; }
+
+@keyframes waveformBounce {
+  0% { height: 6px; opacity: 0.4; }
+  100% { height: 32px; opacity: 1; }
+}
+
+/* Controls */
+.recorder-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.recorder-ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 8px 16px;
+}
+
+.recorder-stop-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 3px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow);
+  color: #fff;
+}
+
+.recorder-stop-btn:hover {
+  transform: scale(1.08);
+  box-shadow: var(--shadow-lg);
+}
+
+.recorder-cancel-btn {
+  color: var(--text-muted);
+}
+
+/* ── Preview ── */
+.recorder-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.recorder-preview-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--teal);
+  background: var(--teal-light);
+  border: 2px solid var(--border-light);
+}
+
+[data-theme="dark"] .recorder-preview-badge {
+  background: rgba(94, 221, 213, 0.1);
+}
+
+.recorder-video-preview {
+  width: 100%;
+  max-height: 260px;
+  border-radius: var(--radius);
+  border: var(--border-width) solid var(--border);
+  background: #000;
+  box-shadow: var(--shadow);
+}
+
+.recorder-preview-info {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.recorder-preview-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  padding-bottom: 4px;
+}
+
+.recorder-preview-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+}
+
+/* ── Floating Recording Bar ── */
+.recorder-floating-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border: 3px solid var(--border);
+  border-radius: 99px;
+  box-shadow: var(--shadow-lg), 0 8px 32px rgba(0,0,0,0.15);
+  animation: floatBarIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes floatBarIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.9); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+.recorder-float-timer {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: 1px;
+  min-width: 52px;
+}
+
+.recorder-float-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-light);
+}
+
+.recorder-float-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--border-light);
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text);
+}
+
+.recorder-float-btn:hover {
+  border-color: var(--border);
+  background: var(--surface);
+  transform: scale(1.1);
+}
+
+.recorder-float-stop {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.recorder-float-stop:hover {
+  transform: scale(1.12);
+  box-shadow: var(--shadow);
+}
+
+.recorder-float-cancel {
+  color: var(--text-muted);
+}
+
+.recorder-float-cancel:hover {
+  color: var(--danger, #ef4444);
+  border-color: var(--danger, #ef4444);
+}
