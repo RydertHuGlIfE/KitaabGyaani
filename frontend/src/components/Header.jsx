@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 import { useTheme } from '../context/ThemeContext'
 import { useLocation, Link } from 'react-router-dom'
 import PomodoroTimer from './PomodoroTimer'
+import { useFocus } from '../context/FocusContext'
 
 export default function Header() {
     const { theme, toggleTheme } = useTheme()
+    const { isFocusModeActive, toggleFocusMode } = useFocus()
     const [nightLight, setNightLight] = useState(localStorage.getItem('nightLight') === 'true')
     const location = useLocation()
 
@@ -92,6 +94,24 @@ export default function Header() {
                         </svg>
                     )}
                 </button>
+
+                <button
+                    className={`theme-toggle${isFocusModeActive ? ' active' : ''}`}
+                    onClick={toggleFocusMode}
+                    aria-label="Toggle focus mode"
+                    title={`Turn ${isFocusModeActive ? 'off' : 'on'} focus mode`}
+                    style={{
+                        background: isFocusModeActive ? 'var(--coral)' : 'var(--bg-card-hover)',
+                        color: isFocusModeActive ? 'white' : 'var(--text-main)',
+                        border: isFocusModeActive ? 'none' : '1px solid var(--border)'
+                    }}
+                >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        <circle cx="12" cy="12" r="3" />
+                    </svg>
+                </button>
+
                 <div className="header-badge">
                     <span className="status-dot" />
                     AI Online

@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { MODES } from './SessionConstants';
+import { useFocus } from './FocusContext';
 
 const SessionContext = createContext();
 
 export const SessionProvider = ({ children }) => {
+  const { isSleeping } = useFocus();
   const [phase, setPhase] = useState('IDLE');
   const [activeMode, setActiveMode] = useState(null);
   const [prevMode, setPrevMode] = useState(null);
@@ -78,7 +80,7 @@ export const SessionProvider = ({ children }) => {
   const togglePause = () => setIsPlaying(prev => !prev);
 
   useEffect(() => {
-    if (isPlaying && timeLeft > 0) {
+    if (isPlaying && timeLeft > 0 && !isSleeping) {
       timerRef.current = setInterval(() => {
         setTimeLeft(prev => {
           const next = prev - 1;
