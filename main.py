@@ -12,6 +12,7 @@ import random
 import time
 import requests
 import PyPDF2
+from youtube_transcript_api import YouTubeTranscriptApi
 import base64
 import uuid
 from io import BytesIO
@@ -40,28 +41,48 @@ def clean_mermaid_syntax(text):
     
     # Remove markdown blocks
     text = text.strip()
-    if text.startswith("```mermaid"): text = text.replace("```mermaid", "", 1)
-    if text.startswith("```"): text = text.replace("```", "", 1)
-    if text.endswith("```"): text = text.rsplit("```", 1)[0]
-    text = text.strip()
+    if "```mermaid" in text:
+        text = text.split("```mermaid")[1].split("```")[0].strip()
+    elif "```" in text:
+        text = text.split("```")[1].split("```")[0].strip()
     
     lines = text.split('\n')
     cleaned_lines = []
+    
+    # Ensure it starts with flowchart TD if nothing specified
+    has_header = False
     for line in lines:
-        # Look for Node labels like ID[Label] or ID(Label) or ID((Label))
-        if '[' in line and ']' in line:
+        if any(h in line for h in ["flowchart", "graph", "sequenceDiagram", "gantt"]):
+            has_header = True
+            break
+    if not has_header:
+        cleaned_lines.append("flowchart TD")
+
+    for line in lines:
+        line = line.strip()
+        if not line: continue
+        
+        # Handle Node labels to be super strict for Mermaid v10
+        # Replace all [label] with ["label"] and (label) with ("label")
+        if '[' in line and ']' in line and '["' not in line:
             parts = line.split('[', 1)
             suffix = parts[1].rsplit(']', 1)
-            label = suffix[0].replace('"', "'") # Replace internal " with '
+            label = suffix[0].replace('"', "'").replace('(', '').replace(')', '')
             line = f'{parts[0]}["{label}"]{suffix[1]}'
-        elif '(' in line and ')' in line:
+        elif '(' in line and ')' in line and '("' not in line:
             parts = line.split('(', 1)
             suffix = parts[1].rsplit(')', 1)
-            label = suffix[0].replace('"', "'")
+            label = suffix[0].replace('"', "'").replace('[', '').replace(']', '')
             line = f'{parts[0]}("{label}"){suffix[1]}'
+            
         cleaned_lines.append(line)
      
-    return "\n".join(cleaned_lines)
+    # Final safety: remove mermaid keyword if it leaked in
+    result = "\n".join(cleaned_lines)
+    if result.startswith("mermaid"):
+        result = result[7:].strip()
+        
+    return result
 
 # In-memory storage - no files saved to disk (Vercel compatible)
 uploaded_pdf_text = {}
@@ -70,26 +91,7 @@ uploaded_pdf_data = {}
 # In-memory collaborative sessions
 collab_sessions = {}
 
-# ── React SPA routes ──────────────────────────────────────────────────────────
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve_react(path):
-    full = os.path.join(REACT_BUILD, path)
-    if path and os.path.exists(full):
-        response = send_from_directory(REACT_BUILD, path)
-    else:
-        response = send_from_directory(REACT_BUILD, 'index.html')
-    
-    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-    return response
-
-@app.route('/viewer')
-def viewer():
-    if 'pdf_filename' not in session:
-        return redirect(url_for('index'))
-    return render_template("viewer.html")
+# (React SPA routes moved to bottom)
 
 @app.route('/get-pdf-info')
 def get_pdf_info():
@@ -276,6 +278,52 @@ def switch_pdf():
         
     session['pdf_filename'] = filename
     return jsonify({"success": True})
+
+@app.route('/youtube/summarize', methods=['POST'])
+def youtube_summarize():
+    data = request.get_json()
+    url = data.get('url', '')
+    
+    video_id = extract_video_id(url)
+    if not video_id:
+        return jsonify({"error": "Invalid YouTube URL. Please provide a valid link."}), 400
+        
+    try:
+        api = YouTubeTranscriptApi()
+        transcript_data = api.fetch(video_id, languages=['en', 'en-GB', 'hi'])
+        full_transcript = " ".join([t.text if hasattr(t, 'text') else t['text'] for t in transcript_data])
+        
+        prompt = f"""
+        Summarize the following YouTube video transcript in detail using bullet points.
+        TRANSCRIPT:
+        {full_transcript[:15000]} 
+
+        RULES:
+        - Output HTML ONLY (<h3>, <ol>, <li>, <p>).
+        - Use <h3> for the main title.
+        - Be concise but comprehensive.
+        - If no content is found, say "No summary available".
+        """
+        
+        response = model.generate_content(prompt)
+        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        return jsonify({"response": ai_res, "is_html": True})
+        
+    except Exception as e:
+        error_msg = str(e)
+        return jsonify({"error": f"YouTube Error: {error_msg[:100]}"}), 500
+
+def extract_video_id(url):
+    import re
+    patterns = [
+        r'(?:v=|\/)([0-9A-Za-z_-]{11}).*',
+        r'youtu\.be\/([0-9A-Za-z_-]{11})',
+        r'embed\/([0-9A-Za-z_-]{11})'
+    ]
+    for p in patterns:
+        match = re.search(p, url)
+        if match: return match.group(1)
+    return None
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -634,11 +682,11 @@ def visualize():
 
     Requirements:  
     - Output ONLY raw Mermaid code (no markdown blocks, no explanations).
-    - Start with "flowchart TD" or "graph TD".
+    - Use "flowchart TD" syntax.
     - IMPORTANT: All node labels MUST be wrapped in double quotes: ID["Label Text"].
     - DO NOT use double quotes INSIDE a label text. Use single quotes if needed.
-    - Remove any parentheses () or square brackets [] from INSIDE the label text.
-    - Use clear and concise labels.
+    - Remove any special characters like parentheses (), square brackets [], or semicolons ; from INSIDE the label text.
+    - Ensure nodes are clearly separated.
     """
     
     try:
@@ -722,8 +770,10 @@ def create_session():
         'chat_messages': [],
         'connected_users': 0,
         'quiz': None,
-        'visualize_state': None
+        'visualize_state': None,
+        'whiteboard_annotations': []
     }
+
 
     for fname in (multi_filenames if multi_filenames else [filename]):
         collab_sessions[session_id]['annotations'][fname] = []
@@ -747,8 +797,10 @@ def session_info(session_id):
         "chat_messages": sess['chat_messages'],
         "connected_users": sess['connected_users'],
         "quiz": sess['quiz'],
-        "visualize_state": sess['visualize_state']
+        "visualize_state": sess['visualize_state'],
+        "whiteboard_annotations": sess.get('whiteboard_annotations', [])
     })
+
 
 
 @app.route('/api/session/<session_id>/pdf')
@@ -892,11 +944,11 @@ def session_visualize(session_id):
     PDF CONTENT:
     {pdf_content}
     Rules: 
-    - Use graph TD. 
+    - Use "flowchart TD" syntax. 
     - Output ONLY raw Mermaid code (no markdown blocks, no explanations).
     - IMPORTANT: All node labels MUST be wrapped in double quotes: ID["Label Text"].
     - DO NOT use double quotes INSIDE a label text.
-    - Remove any parentheses () or square brackets [] from INSIDE the label text.
+    - Remove any special characters like parentheses (), square brackets [], or semicolons ; from INSIDE the label text.
     """
     try:
         response = model.generate_content(prompt)
@@ -1031,10 +1083,6 @@ def session_quiz_answer(session_id):
         return jsonify({"success": True})
 
 
-# ══════════════════════════════════════════════════════════════════════
-# SOCKETIO EVENTS
-# ══════════════════════════════════════════════════════════════════════
-
 @socketio.on('join_session')
 def handle_join_session(data):
     session_id = data.get('sessionId')
@@ -1050,8 +1098,10 @@ def handle_join_session(data):
         'chat_messages': sess['chat_messages'],
         'connected_users': sess['connected_users'],
         'quiz': sess['quiz'],
-        'visualize_state': sess['visualize_state']
+        'visualize_state': sess['visualize_state'],
+        'whiteboard_annotations': sess.get('whiteboard_annotations', [])
     })
+
     emit('user_joined', {
         'username': username,
         'connected_users': sess['connected_users']
@@ -1087,7 +1137,44 @@ def handle_new_annotation(data):
     emit('annotation_update', {'annotation': annotation, 'filename': filename}, room=session_id, include_self=False)
 
 
+@socketio.on('clear_annotations')
+def handle_clear_annotations(data):
+    session_id = data.get('sessionId')
+    filename = data.get('filename')
+    sess = collab_sessions.get(session_id)
+    if not sess or not filename:
+        return
+    # Clear annotations for this PDF in memory
+    sess['annotations'][filename] = []
+    # Broadcast to everyone in the room
+    emit('annotations_cleared', {'filename': filename}, room=session_id)
+
+
+@socketio.on('new_whiteboard_annotation')
+def handle_new_whiteboard_annotation(data):
+    session_id = data.get('sessionId')
+    annotation = data.get('annotation')
+    sess = collab_sessions.get(session_id)
+    if not sess or not annotation:
+        return
+    if 'whiteboard_annotations' not in sess:
+        sess['whiteboard_annotations'] = []
+    sess['whiteboard_annotations'].append(annotation)
+    emit('whiteboard_update', {'annotation': annotation}, room=session_id, include_self=False)
+
+
+@socketio.on('clear_whiteboard')
+def handle_clear_whiteboard(data):
+    session_id = data.get('sessionId')
+    sess = collab_sessions.get(session_id)
+    if not sess:
+        return
+    sess['whiteboard_annotations'] = []
+    emit('whiteboard_cleared', room=session_id)
+
+
 @socketio.on('switch_pdf')
+
 def handle_switch_pdf(data):
     session_id = data.get('sessionId')
     filename = data.get('filename')
@@ -1108,6 +1195,56 @@ def handle_switch_pdf(data):
 def handle_disconnect():
     pass  # Room cleanup handled automatically by Flask-SocketIO
 
+
+@app.route('/api/session/<session_id>/youtube/summarize', methods=['POST'])
+def session_youtube_summarize(session_id):
+    sess = collab_sessions.get(session_id)
+    if not sess: return jsonify({"error": "Session not found"}), 404
+    data = request.get_json()
+    url = data.get('url', '')
+    sender = data.get('sender', 'Anonymous')
+    
+    video_id = extract_video_id(url)
+    if not video_id:
+        return jsonify({"error": "Invalid YouTube URL."}), 400
+        
+    try:
+        api = YouTubeTranscriptApi()
+        transcript_data = api.fetch(video_id, languages=['en', 'en-GB', 'hi'])
+        full_transcript = " ".join([t.text if hasattr(t, 'text') else t['text'] for t in transcript_data])
+        
+        prompt = f"""Summarize this YouTube video transcript in bullet points.
+        TRANSCRIPT: {full_transcript[:10000]}
+        Output HTML ONLY (<h3>, <ol>, <li>, <p>)."""
+        
+        response = model.generate_content(prompt)
+        ai_res = response.text if hasattr(response, 'text') else "".join([p.text for p in response.candidates[0].content.parts])
+        
+        chat_entry = {'sender': sender, 'message': f'Summarize video: {url}', 'aiResponse': ai_res, 'timestamp': time.time()}
+        sess['chat_messages'].append(chat_entry)
+        socketio.emit('chat_update', chat_entry, room=session_id)
+        
+        return jsonify({"response": ai_res, "is_html": True})
+    except Exception as e:
+        return jsonify({"error": f"YouTube Error: {str(e)[:100]}"}), 500
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react(path):
+    full = os.path.join(REACT_BUILD, path)
+    if path and os.path.exists(full):
+        response = send_from_directory(REACT_BUILD, path)
+    else:
+        response = send_from_directory(REACT_BUILD, 'index.html')
+    
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+@app.route('/viewer')
+def viewer():
+    return send_from_directory(REACT_BUILD, 'index.html')
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)

@@ -160,6 +160,11 @@ export default function UploadPage() {
                     </div>
                 </div>
 
+                {/* Mascot */}
+                <div style={{ position: 'fixed', bottom: '20px', right: '20px', zIndex: 10, animation: 'float 3s ease-in-out infinite' }}>
+                    <img src="/icebear.png" alt="KitaabGyaani Mascot" style={{ width: '180px', height: 'auto', filter: 'drop-shadow(0 8px 16px rgba(0,0,0,0.15))', borderRadius: '8px' }} />
+                </div>
+
             </div>
         </div>
     )

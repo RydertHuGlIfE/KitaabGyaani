@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { io } from 'socket.io-client'
 import MermaidDiagram from '../components/MermaidDiagram'
 
 export default function CollabViewerPage() {
     const [searchParams] = useSearchParams()
-    const sessionId = searchParams.get('sessionid')
+    const sessionId = searchParams.get('sessionid') || searchParams.get('sessionId')
     const navigate = useNavigate()
+
 
     const [pdfFilename, setPdfFilename] = useState('')
     const [multiFilenames, setMultiFilenames] = useState([])
@@ -28,9 +29,16 @@ export default function CollabViewerPage() {
     const [subtopicContent, setSubtopicContent] = useState('')
     const [loadingVisualize, setLoadingVisualize] = useState(false)
     const [loadingSubtopic, setLoadingSubtopic] = useState(false)
-
+ 
+    // Whiteboard State
+    const [showWhiteboard, setShowWhiteboard] = useState(false)
+    const [whiteboardHeight, setWhiteboardHeight] = useState(250)
+    const [whiteboardAnnotations, setWhiteboardAnnotations] = useState([])
+    const whiteboardCanvasRef = useRef()
+    const isResizingRef = useRef(false)
+ 
     // Annotation tool state
-    const [annotationTool, setAnnotationTool] = useState('none') // 'none' | 'highlight' | 'draw'
+    const [annotationTool, setAnnotationTool] = useState('none') // 'none' | 'highlight' | 'draw' | 'eraser'
     const [annotationColor, setAnnotationColor] = useState('#FFB830')
     const [isDrawing, setIsDrawing] = useState(false)
     const [currentPath, setCurrentPath] = useState([])
@@ -63,14 +71,16 @@ export default function CollabViewerPage() {
                 setPdfFilename(data.pdf_filename)
                 setMultiFilenames(data.multi_pdf_filenames || [])
                 setAnnotations(data.annotations || [])
+                setWhiteboardAnnotations(data.whiteboard_annotations || [])
                 setConnectedUsers(data.connected_users || 0)
+
 
                 const existingMsgs = (data.chat_messages || []).flatMap(entry => [
                     { role: 'user', content: `<b>${entry.sender}:</b> ${entry.message}` },
                     { role: 'bot', content: entry.aiResponse }
                 ])
                 setMessages([
-                    { role: 'bot', content: `👋 Welcome to the collaborative session! You're viewing <strong>${data.pdf_filename}</strong>` },
+                    { role: 'bot', content: `Welcome to the collaborative session! You're viewing <strong>${data.pdf_filename}</strong>` },
                     ...existingMsgs
                 ])
 
@@ -93,8 +103,10 @@ export default function CollabViewerPage() {
 
         socket.on('session_state', (state) => {
             setAnnotations(state.annotations || [])
+            setWhiteboardAnnotations(state.whiteboard_annotations || [])
             setConnectedUsers(state.connected_users || 0)
         })
+
 
         socket.on('user_joined', (data) => {
             setConnectedUsers(data.connected_users || 0)
@@ -142,6 +154,24 @@ export default function CollabViewerPage() {
             setLoadingVisualize(false)
         })
 
+        socket.on('annotations_cleared', (data) => {
+            if (data.filename === currentPdfRef.current) {
+                setAnnotations([])
+            }
+        })
+ 
+        socket.on('whiteboard_update', (data) => {
+            console.log('Received whiteboard sync:', data)
+            setWhiteboardAnnotations(prev => [...prev, data.annotation])
+        })
+ 
+        socket.on('whiteboard_cleared', () => {
+            setWhiteboardAnnotations([])
+        })
+
+
+
+
         return () => {
             socket.emit('leave_session', { sessionId, username })
             socket.disconnect()
@@ -172,9 +202,46 @@ export default function CollabViewerPage() {
             } else if (ann.type === 'highlight') {
                 ctx.fillStyle = (ann.color || '#FFB830') + '55'
                 ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+            } else if (ann.type === 'eraser' && ann.path?.length > 1) {
+                ann.path.forEach(p => {
+                    ctx.clearRect(p.x - 10, p.y - 10, 20, 20)
+                })
             }
         })
     }, [annotations])
+ 
+    // ─── Whiteboard Redraw logic ──────────────────────────────
+    const redrawWhiteboard = useCallback(() => {
+        const canvas = whiteboardCanvasRef.current
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+ 
+        whiteboardAnnotations.forEach(ann => {
+            if (!ann || !ann.type) return
+            ctx.strokeStyle = ann.color || '#FFB830'
+            ctx.lineWidth = ann.lineWidth || 3
+            if (ann.type === 'draw' && ann.path?.length > 1) {
+                ctx.beginPath()
+                ctx.moveTo(ann.path[0].x, ann.path[0].y)
+                ann.path.forEach(p => ctx.lineTo(p.x, p.y))
+                ctx.stroke()
+            } else if (ann.type === 'highlight') {
+                ctx.fillStyle = (ann.color || '#FFB830') + '55'
+                ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+            } else if (ann.type === 'eraser' && ann.path?.length > 1) {
+                ann.path.forEach(p => {
+                    ctx.clearRect(p.x - 10, p.y - 10, 20, 20)
+                })
+            }
+        })
+    }, [whiteboardAnnotations])
+ 
+    useEffect(() => {
+        redrawWhiteboard()
+    }, [redrawWhiteboard, showWhiteboard])
+
+
 
     // ─── Canvas resize ───────────────────────────────────────
     useEffect(() => {
@@ -187,6 +254,47 @@ export default function CollabViewerPage() {
         ro.observe(canvas)
         return () => ro.disconnect()
     }, [])
+
+    useEffect(() => {
+        const canvas = whiteboardCanvasRef.current
+        if (!canvas) return
+        const ro = new ResizeObserver(() => {
+            if (canvas.width !== canvas.offsetWidth || canvas.height !== canvas.offsetHeight) {
+                canvas.width = canvas.offsetWidth
+                canvas.height = canvas.offsetHeight
+                redrawWhiteboard()
+            }
+        })
+        ro.observe(canvas)
+        return () => ro.disconnect()
+    }, [showWhiteboard, redrawWhiteboard])
+
+
+    // --- Optimized Whiteboard Resizing ---
+    const [isResizingWB, setIsResizingWB] = useState(false)
+    const startResizing = (e) => {
+        e.preventDefault()
+        setIsResizingWB(true)
+        isResizingRef.current = true
+        document.addEventListener('mousemove', handleResizing)
+        document.addEventListener('mouseup', stopResizing)
+    }
+
+    const handleResizing = (e) => {
+        if (!isResizingRef.current) return
+        const newHeight = window.innerHeight - e.clientY - 40 // adjusted padding
+        const clampedHeight = Math.max(100, Math.min(window.innerHeight * 0.7, newHeight))
+        document.documentElement.style.setProperty('--whiteboard-height', `${clampedHeight}px`)
+    }
+
+    const stopResizing = () => {
+        setIsResizingWB(false)
+        isResizingRef.current = false
+        document.removeEventListener('mousemove', handleResizing)
+        document.removeEventListener('mouseup', stopResizing)
+    }
+
+
 
     // ─── Canvas mouse handlers ────────────────────────────────
     const handleCanvasMouseDown = (e) => {
@@ -224,6 +332,12 @@ export default function CollabViewerPage() {
                 }
                 return next
             })
+        } else if (annotationTool === 'eraser') {
+            setCurrentPath(prev => {
+                const next = [...prev, { x, y }]
+                ctx.clearRect(x - 10, y - 10, 20, 20)
+                return next
+            })
         } else if (annotationTool === 'highlight') {
             const sx = canvas._startX
             const sy = canvas._startY
@@ -240,6 +354,10 @@ export default function CollabViewerPage() {
                 } else if (ann.type === 'highlight') {
                     ctx.fillStyle = (ann.color || '#FFB830') + '55'
                     ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+                } else if (ann.type === 'eraser' && ann.path?.length > 1) {
+                    ann.path.forEach(p => {
+                        ctx.clearRect(p.x - 10, p.y - 10, 20, 20)
+                    })
                 }
             })
             ctx.fillStyle = annotationColor + '55'
@@ -258,6 +376,8 @@ export default function CollabViewerPage() {
         let annotation = null
         if (annotationTool === 'draw' && currentPath.length > 1) {
             annotation = { type: 'draw', path: currentPath, color: annotationColor, lineWidth: 3 }
+        } else if (annotationTool === 'eraser' && currentPath.length > 1) {
+            annotation = { type: 'eraser', path: currentPath, lineWidth: 20 }
         } else if (annotationTool === 'highlight') {
             annotation = {
                 type: 'highlight',
@@ -273,6 +393,80 @@ export default function CollabViewerPage() {
         }
         setCurrentPath([])
     }
+
+    // --- Whiteboard Canvas Handlers ---
+    const handleWBMouseDown = (e) => {
+        if (annotationTool === 'none') return
+        const rect = whiteboardCanvasRef.current.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+        setIsDrawing(true)
+        if (annotationTool === 'draw') setCurrentPath([{ x, y }])
+    }
+
+    const handleWBMouseMove = (e) => {
+        if (!isDrawing || annotationTool === 'none') return
+        const canvas = whiteboardCanvasRef.current
+        const rect = canvas.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+        const ctx = canvas.getContext('2d')
+
+        if (annotationTool === 'draw') {
+            setCurrentPath(prev => {
+                const next = [...prev, { x, y }]
+                ctx.strokeStyle = annotationColor
+                ctx.lineWidth = 3
+                ctx.lineCap = 'round'
+                if (next.length > 1) {
+                    ctx.beginPath()
+                    ctx.moveTo(next[next.length - 2].x, next[next.length - 2].y)
+                    ctx.lineTo(x, y)
+                    ctx.stroke()
+                }
+                return next
+            })
+        } else if (annotationTool === 'eraser') {
+            setCurrentPath(prev => {
+                const next = [...prev, { x, y }]
+                ctx.clearRect(x - 10, y - 10, 20, 20)
+                return next
+            })
+        }
+    }
+
+    const handleWBMouseUp = (e) => {
+        if (!isDrawing) return
+        setIsDrawing(false)
+        let annotation = null
+        if (annotationTool === 'draw' && currentPath.length > 1) {
+            annotation = { type: 'draw', path: currentPath, color: annotationColor, lineWidth: 3 }
+        } else if (annotationTool === 'eraser' && currentPath.length > 1) {
+            annotation = { type: 'eraser', path: currentPath, lineWidth: 20 }
+        }
+
+        if (annotation) {
+            setWhiteboardAnnotations(prev => [...prev, annotation])
+            console.log('Sending whiteboard sync:', annotation)
+            socketRef.current?.emit('new_whiteboard_annotation', { sessionId, annotation })
+        }
+        setCurrentPath([])
+    }
+
+
+    const handleClearWhiteboard = () => {
+        if (!window.confirm("Clear the entire whiteboard for everyone?")) return
+        setWhiteboardAnnotations([])
+        socketRef.current?.emit('clear_whiteboard', { sessionId })
+    }
+
+
+    const handleClearAnnotations = () => {
+        if (!window.confirm("Are you sure you want to clear all annotations for this document? This will clear them for everyone.")) return
+        setAnnotations([])
+        socketRef.current?.emit('clear_annotations', { sessionId, filename: pdfFilename })
+    }
+
 
     // ─── Actions ──────────────────────────────────────────────
     const handleSummarize = async () => {
@@ -331,20 +525,18 @@ export default function CollabViewerPage() {
         finally { setLoading(false) }
     }
 
-    const handleYTSearch = async () => {
+    const handleYTSummarize = async () => {
         if (!ytInput.trim()) return
         setShowYT(false)
-        const query = ytInput
+        const url = ytInput
         setYtInput('')
         setLoading(true)
         try {
-            const res = await fetch('/chat', {
+            await fetch(`/api/session/${sessionId}/youtube/summarize`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: `search youtube for: ${query}` })
+                body: JSON.stringify({ url, sender: username })
             })
-            const data = await res.json()
-            setMessages(prev => [...prev, { role: 'bot', content: data.response || 'YouTube search opened in browser!' }])
-        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Error loading YouTube.' }]) }
+        } catch { setMessages(prev => [...prev, { role: 'bot', content: 'Error loading YouTube summary.' }]) }
         finally { setLoading(false) }
     }
 
@@ -382,6 +574,20 @@ export default function CollabViewerPage() {
         socketRef.current?.emit('switch_pdf', { sessionId, filename: fname, username })
     }
 
+    const handleSyncSession = () => {
+        setLoading(true)
+        socketRef.current?.emit('join_session', { sessionId, username })
+        fetch(`/api/session/${sessionId}/info`)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.error) {
+                    setAnnotations(data.annotations || [])
+                    setConnectedUsers(data.connected_users || 0)
+                }
+            })
+            .finally(() => setLoading(false))
+    }
+
     // ─── Copy link ────────────────────────────────────────────
     const handleCopyLink = () => {
         navigator.clipboard.writeText(window.location.href)
@@ -417,12 +623,27 @@ export default function CollabViewerPage() {
                 </div>
                 <div className="collab-banner-center">
                     <span className="collab-users-badge">
-                        👥 {connectedUsers} online
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                        {connectedUsers} online
                     </span>
                 </div>
                 <div className="collab-banner-right">
-                    <button className="collab-copy-btn" onClick={handleCopyLink}>
-                        {copied ? '✅ Copied!' : '📋 Copy Link'}
+                    <button className="collab-copy-btn" onClick={handleSyncSession} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+                        Sync State
+                    </button>
+                    <button className="collab-copy-btn" onClick={handleCopyLink} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {copied ? (
+                            <>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
+                                Copied!
+                            </>
+                        ) : (
+                            <>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg>
+                                Copy Link
+                            </>
+                        )}
                     </button>
                     <button className="btn btn-ghost btn-sm" onClick={() => navigate('/')}>← Exit</button>
                 </div>
@@ -467,17 +688,30 @@ export default function CollabViewerPage() {
                                 className={`anno-btn${annotationTool === 'none' ? ' active' : ''}`}
                                 onClick={() => setAnnotationTool('none')}
                                 title="Pointer"
-                            >🖱️</button>
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3l7.07 7.07m0 0l10.93 10.93M10.07 10.07L3 17m0 0h7.07m0 0v-7.07" /></svg>
+                            </button>
                             <button
                                 className={`anno-btn${annotationTool === 'highlight' ? ' active' : ''}`}
                                 onClick={() => setAnnotationTool('highlight')}
                                 title="Highlight"
-                            >🟨</button>
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12l5.586-5.586a2 2 0 0 1 2.828 0l5.586 5.586M5 12L3 14m0 0l7 7h8l2-2" /><path d="M12 7l-5 5m5-5l5 5" /></svg>
+                            </button>
                             <button
                                 className={`anno-btn${annotationTool === 'draw' ? ' active' : ''}`}
                                 onClick={() => setAnnotationTool('draw')}
                                 title="Draw"
-                            >✏️</button>
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 17.6v3.4a1 1 0 0 0 1 1h3.4M15.4 3H20a1 1 0 0 1 1 1v4.6M7 7l10 10M3.5 18.5l14.14-14.14a2 2 0 0 1 2.83 0l2.83 2.83a2 2 0 0 1 0 2.83l-14.14 14.14" /></svg>
+                            </button>
+                            <button
+                                className={`anno-btn${annotationTool === 'eraser' ? ' active' : ''}`}
+                                onClick={() => setAnnotationTool('eraser')}
+                                title="Eraser"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 3H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-6 14l7-7m-7 7H5m14 0l-7-7m7 7v-4" /><circle cx="18" cy="18" r="1.5" /></svg>
+                            </button>
                             <input
                                 type="color"
                                 value={annotationColor}
@@ -485,7 +719,25 @@ export default function CollabViewerPage() {
                                 className="anno-color-picker"
                                 title="Annotation Color"
                             />
+                            <button
+                                className="anno-btn"
+                                onClick={handleClearAnnotations}
+                                title="Clear All Annotations"
+                                style={{ marginLeft: '8px', color: '#ef4444' }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" /></svg>
+                            </button>
+                            <button
+                                className={`anno-btn${showWhiteboard ? ' active' : ''}`}
+                                onClick={() => setShowWhiteboard(p => !p)}
+                                title="Toggle Whiteboard"
+                                style={{ marginLeft: '8px', color: 'var(--teal)' }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+                            </button>
                         </div>
+
+
                     </div>
 
                     {showVisualizer ? (
@@ -504,25 +756,54 @@ export default function CollabViewerPage() {
                             )}
                         </div>
                     ) : (
-                        <div className="pdf-canvas-container">
-                            {pdfFilename && (
-                                <iframe
-                                    className="pdf-iframe"
-                                    src={`/api/session/${sessionId}/pdf`}
-                                    title="PDF Viewer"
-                                    key={pdfFilename}
+                        <div className="pdf-viewport-container" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                            <div className="pdf-canvas-container" style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+                                {pdfFilename && (
+                                    <iframe
+                                        className="pdf-iframe"
+                                        src={`/api/session/${sessionId}/pdf`}
+                                        title="PDF Viewer"
+                                        key={pdfFilename}
+                                    />
+                                )}
+                                <canvas
+                                    ref={canvasRef}
+                                    className={`annotation-canvas${annotationTool !== 'none' ? ' active' : ''}`}
+                                    onMouseDown={handleCanvasMouseDown}
+                                    onMouseMove={handleCanvasMouseMove}
+                                    onMouseUp={handleCanvasMouseUp}
+                                    onMouseLeave={handleCanvasMouseUp}
                                 />
+                            </div>
+
+                            {showWhiteboard && (
+                                <>
+                                    <div 
+                                        className="whiteboard-resizer" 
+                                        onMouseDown={startResizing}
+                                    />
+                                    {isResizingWB && <div className="whiteboard-resizer-overlay" />}
+                                    <div className="whiteboard-container">
+
+                                        <div className="whiteboard-header" style={{ padding: '4px 12px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-muted)' }}>COLLABORATIVE WHITEBOARD</span>
+                                            <button className="btn btn-ghost btn-sm" onClick={handleClearWhiteboard} style={{ padding: '2px 8px', fontSize: '10px' }}>Clear</button>
+                                        </div>
+                                        <canvas
+                                            ref={whiteboardCanvasRef}
+                                            className="whiteboard-canvas"
+                                            style={{ flex: 1, cursor: annotationTool !== 'none' ? 'crosshair' : 'default' }}
+                                            onMouseDown={handleWBMouseDown}
+                                            onMouseMove={handleWBMouseMove}
+                                            onMouseUp={handleWBMouseUp}
+                                            onMouseLeave={handleWBMouseUp}
+                                        />
+                                    </div>
+                                </>
                             )}
-                            <canvas
-                                ref={canvasRef}
-                                className={`annotation-canvas${annotationTool !== 'none' ? ' active' : ''}`}
-                                onMouseDown={handleCanvasMouseDown}
-                                onMouseMove={handleCanvasMouseMove}
-                                onMouseUp={handleCanvasMouseUp}
-                                onMouseLeave={handleCanvasMouseUp}
-                            />
                         </div>
                     )}
+
                 </div>
 
                 {/* Chat Panel */}
@@ -530,7 +811,7 @@ export default function CollabViewerPage() {
                     <div className="chat-panel-header">
                         <div className="chat-panel-header-top">
                             <div className="chat-ai-avatar">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                             </div>
                             <div>
                                 <div className="chat-panel-title">AI Assistant</div>
@@ -561,7 +842,7 @@ export default function CollabViewerPage() {
                         </button>
                         <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
-                            YouTube
+                            YT Summarize
                         </button>
                     </div>
 
@@ -571,7 +852,7 @@ export default function CollabViewerPage() {
                             <div key={i} className={`message ${m.role}`}>
                                 <div className="msg-avatar">
                                     {m.role === 'bot' ? (
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                        <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                                     ) : (
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                                     )}
@@ -586,7 +867,7 @@ export default function CollabViewerPage() {
                         {loading && (
                             <div className="typing-indicator">
                                 <div className="msg-avatar">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                    <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                                 </div>
                                 <div className="typing-dots">
                                     <span /><span /><span />
@@ -602,16 +883,16 @@ export default function CollabViewerPage() {
                             <div className="youtube-search-bar">
                                 <input
                                     className="chat-input"
-                                    placeholder="What to search on YouTube?"
+                                    placeholder="Paste YouTube Link for Summary..."
                                     value={ytInput}
                                     onChange={e => setYtInput(e.target.value)}
                                     onKeyDown={e => {
-                                        if (e.key === 'Enter') handleYTSearch()
+                                        if (e.key === 'Enter') handleYTSummarize()
                                         if (e.key === 'Escape') setShowYT(false)
                                     }}
                                     autoFocus
                                 />
-                                <button className="send-btn" onClick={handleYTSearch}>Search</button>
+                                <button className="send-btn" onClick={handleYTSummarize}>Summarize</button>
                                 <button className="btn btn-ghost btn-sm" onClick={() => setShowYT(false)}>✕</button>
                             </div>
                         )}

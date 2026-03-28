@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MermaidDiagram from '../components/MermaidDiagram'
 import SpaceInvadersGame from '../components/SpaceInvadersGame'
+import BineuralBeats from '../components/BineuralBeats'
 import '../components/SpaceInvaders.css'
 
 export default function ViewerPage() {
@@ -18,7 +19,8 @@ export default function ViewerPage() {
     const [mcqGameState, setMcqGameState] = useState(null)
     const [showYT, setShowYT] = useState(false)
     const [ytInput, setYtInput] = useState('')
-    
+    const [showBineural, setShowBineural] = useState(false)
+
     // Visualizer States
     const [showVisualizer, setShowVisualizer] = useState(false)
     const [loadingVisualize, setLoadingVisualize] = useState(false)
@@ -68,8 +70,8 @@ export default function ViewerPage() {
                 if (data.result) {
                     const correct = data.result.is_correct
                     addMessage('bot', correct
-                        ? '✅ Correct!'
-                        : `❌ Incorrect. Right answer: <strong>${data.result.correct_answer}</strong>`)
+                        ? ' Correct!'
+                        : ` Incorrect. Right answer: <strong>${data.result.correct_answer}</strong>`)
                 }
                 if (data.message) addMessage('bot', data.message)
                 if (data.feedback) addMessage('bot', `<b>Feedback:</b><br>${data.feedback}`)
@@ -150,8 +152,8 @@ export default function ViewerPage() {
                 addMessage('bot', data.error || 'Error creating flowchart.')
                 setShowVisualizer(false)
             }
-        } catch { 
-            addMessage('bot', 'Error creating flowchart.') 
+        } catch {
+            addMessage('bot', 'Error creating flowchart.')
             setShowVisualizer(false)
         } finally {
             setLoadingVisualize(false)
@@ -163,8 +165,8 @@ export default function ViewerPage() {
         setSubtopicContent('')
         setLoadingSubtopic(true)
         try {
-            const res = await fetch('/visualize/subtopic', { 
-                method: 'POST', 
+            const res = await fetch('/visualize/subtopic', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ subtopic_name: label })
             })
@@ -190,10 +192,10 @@ export default function ViewerPage() {
         addMessage('user', `Start a ${mode === 'mcq_game' ? 'Space Invaders MCQ' : 'Theory'} Quiz`)
         setLoading(true)
         try {
-            const res = await fetch('/quiz/start', { 
-                method: 'POST', 
+            const res = await fetch('/quiz/start', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode }) 
+                body: JSON.stringify({ mode })
             })
             const data = await res.json()
             if (data.question || data.options) {
@@ -225,7 +227,7 @@ export default function ViewerPage() {
                 body: JSON.stringify({ answer: answerText })
             })
             const data = await res.json()
-            
+
             if (data.game_over) {
                 setTimeout(() => {
                     setMcqGameState(null)
@@ -266,23 +268,29 @@ export default function ViewerPage() {
         finally { setLoading(false) }
     }
 
-    const handleYTSearch = async () => {
+    const handleYTSummarize = async () => {
         if (!ytInput.trim()) return
-        addMessage('user', `Search YouTube for: ${ytInput}`)
         setShowYT(false)
-        const query = ytInput
+        const url = ytInput
         setYtInput('')
         setLoading(true)
         try {
-            const res = await fetch('/chat', {
+            const res = await fetch('/youtube/summarize', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: `search youtube for: ${query}` })
+                body: JSON.stringify({ url })
             })
             const data = await res.json()
-            addMessage('bot', data.response || 'YouTube search opened in browser!')
-        } catch { addMessage('bot', 'YouTube search opened in browser!') }
-        finally { setLoading(false) }
+            if (data.error) {
+                setMessages(prev => [...prev, { role: 'bot', content: `<p style="color:var(--coral)">${data.error}</p>` }])
+            } else {
+                setMessages(prev => [...prev, { role: 'bot', content: data.response }])
+            }
+        } catch {
+            setMessages(prev => [...prev, { role: 'bot', content: 'Error loading YouTube summary.' }])
+        } finally {
+            setLoading(false)
+        }
     }
 
     const handleSwitchPdf = async (filename) => {
@@ -338,11 +346,11 @@ export default function ViewerPage() {
                     </div>
                 </div>
             )}
-            
+
             {quizMode === 'mcq_game' && mcqGameState && (
-                <SpaceInvadersGame 
-                    gameState={mcqGameState} 
-                    onAnswer={handleMcqAnswer} 
+                <SpaceInvadersGame
+                    gameState={mcqGameState}
+                    onAnswer={handleMcqAnswer}
                     onClose={() => {
                         setQuizMode('none')
                         setMcqGameState(null)
@@ -426,7 +434,7 @@ export default function ViewerPage() {
                     <div className="chat-panel-header">
                         <div className="chat-panel-header-top">
                             <div className="chat-ai-avatar">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                             </div>
                             <div>
                                 <div className="chat-panel-title">AI Assistant</div>
@@ -459,7 +467,11 @@ export default function ViewerPage() {
                         </button>
                         <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
-                            YouTube
+                            YT Summarize
+                        </button>
+                        <button className="action-btn" onClick={() => setShowBineural(p => !p)}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1v22M17 5v14M7 5v14M2 9v6M22 9v6" /></svg>
+                            Bineural
                         </button>
                         <button className="action-btn collab-btn" onClick={handleStartCollab} disabled={loading}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
@@ -473,7 +485,7 @@ export default function ViewerPage() {
                             <div key={i} className={`message ${m.role}`}>
                                 <div className="msg-avatar">
                                     {m.role === 'bot' ? (
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                        <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                                     ) : (
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                                     )}
@@ -488,7 +500,7 @@ export default function ViewerPage() {
                         {loading && (
                             <div className="typing-indicator">
                                 <div className="msg-avatar">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                    <img src="/ai-avatar.png" alt="AI Assistant" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                                 </div>
                                 <div className="typing-dots">
                                     <span /><span /><span />
@@ -504,16 +516,16 @@ export default function ViewerPage() {
                             <div className="youtube-search-bar">
                                 <input
                                     className="chat-input"
-                                    placeholder="What to search on YouTube?"
+                                    placeholder="Paste YouTube Link for Summary..."
                                     value={ytInput}
                                     onChange={e => setYtInput(e.target.value)}
                                     onKeyDown={e => {
-                                        if (e.key === 'Enter') handleYTSearch()
+                                        if (e.key === 'Enter') handleYTSummarize()
                                         if (e.key === 'Escape') setShowYT(false)
                                     }}
                                     autoFocus
                                 />
-                                <button className="send-btn" onClick={handleYTSearch}>Search</button>
+                                <button className="send-btn" onClick={handleYTSummarize}>Summarize</button>
                                 <button className="btn btn-ghost btn-sm" onClick={() => setShowYT(false)}>✕</button>
                             </div>
                         )}
@@ -557,20 +569,28 @@ export default function ViewerPage() {
                                     <div className="loading-text">Loading notes from AI...</div>
                                 </div>
                             ) : (
-                                <div 
-                                    className="markdown-content" 
-                                    dangerouslySetInnerHTML={{ 
+                                <div
+                                    className="markdown-content"
+                                    dangerouslySetInnerHTML={{
                                         __html: subtopicContent
                                             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                                             .replace(/\*(.*?)\*/g, '<em>$1</em>')
                                             .replace(/#{3,}\s*(.*?)\n/g, '<h3>$1</h3>')
                                             .replace(/#{1,2}\s*(.*?)\n/g, '<h2>$1</h2>')
                                             .replace(/\n\n/g, '<br><br>')
-                                            .replace(/\n- /g, '<br>• ') 
-                                    }} 
+                                            .replace(/\n- /g, '<br>• ')
+                                    }}
                                 />
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {showBineural && (
+                <div className="subtopic-modal-overlay" onClick={() => setShowBineural(false)}>
+                    <div onClick={e => e.stopPropagation()}>
+                        <BineuralBeats />
                     </div>
                 </div>
             )}
