@@ -290,8 +290,13 @@ def youtube_summarize():
         
     try:
         api = YouTubeTranscriptApi()
-        transcript_data = api.fetch(video_id, languages=['en', 'en-GB', 'hi'])
-        full_transcript = " ".join([t.text if hasattr(t, 'text') else t['text'] for t in transcript_data])
+        try:
+            transcript = api.fetch(video_id, languages=['en', 'en-GB', 'hi'])
+        except Exception:
+            # Fallback: grab any available transcript (including auto-generated)
+            transcript = api.fetch(video_id)
+        transcript_data = transcript.to_raw_data()
+        full_transcript = " ".join([t['text'] for t in transcript_data])
         
         prompt = f"""
         Summarize the following YouTube video transcript in detail using bullet points.
@@ -1317,8 +1322,13 @@ def session_youtube_summarize(session_id):
         
     try:
         api = YouTubeTranscriptApi()
-        transcript_data = api.fetch(video_id, languages=['en', 'en-GB', 'hi'])
-        full_transcript = " ".join([t.text if hasattr(t, 'text') else t['text'] for t in transcript_data])
+        try:
+            transcript = api.fetch(video_id, languages=['en', 'en-GB', 'hi'])
+        except Exception:
+            # Fallback: grab any available transcript (including auto-generated)
+            transcript = api.fetch(video_id)
+        transcript_data = transcript.to_raw_data()
+        full_transcript = " ".join([t['text'] for t in transcript_data])
         
         prompt = f"""Summarize this YouTube video transcript in bullet points.
         TRANSCRIPT: {full_transcript[:10000]}

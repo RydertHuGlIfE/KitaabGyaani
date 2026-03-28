@@ -840,10 +840,12 @@ export default function CollabViewerPage() {
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
                             {multiFilenames.length > 1 ? 'Quiz All' : 'Quiz'}
                         </button>
+                        {/* YT Summarize hidden temporarily
                         <button className="action-btn" onClick={() => setShowYT(p => !p)} disabled={loading}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
                             YT Summarize
                         </button>
+                        */}
                     </div>
 
                     {/* Messages */}
