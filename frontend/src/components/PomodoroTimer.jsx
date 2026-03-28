@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSession } from '../context/SessionContext';
 import { MODES } from '../context/SessionConstants';
+import { useFocus } from '../context/FocusContext';
 
 export default function PomodoroTimer() {
     const { phase, activeMode, timeLeft: globalTime, isPlaying: globalPlaying, startSession, togglePause } = useSession();
+    const { isSleeping } = useFocus();
     
     // Local Pomodoro States (used when Binaural is IDLE)
     const [localMode, setLocalMode] = useState('study'); 
@@ -12,7 +14,7 @@ export default function PomodoroTimer() {
 
     useEffect(() => {
         let interval = null;
-        if (localIsActive && localTimeLeft > 0 && phase === 'IDLE') {
+        if (localIsActive && localTimeLeft > 0 && phase === 'IDLE' && !isSleeping) {
             interval = setInterval(() => {
                 setLocalTimeLeft(t => t - 1);
             }, 1000);
@@ -33,6 +35,7 @@ export default function PomodoroTimer() {
     const displayTime = isSessionActive ? globalTime : localTimeLeft;
     const displayMode = isSessionActive ? (MODES[activeMode]?.label || MODES[phase]?.label || 'FOCUS') : (localMode === 'study' ? 'STUDY' : 'BREAK');
     const isActive = isSessionActive ? globalPlaying : localIsActive;
+    const isActuallyRunning = isActive && !isSleeping;
 
     const handleToggle = () => {
         if (isSessionActive) togglePause();
@@ -75,8 +78,17 @@ export default function PomodoroTimer() {
             <span style={{ fontFamily: 'monospace', fontSize: '1rem', width: '45px', textAlign: 'center', margin: '0 4px', color: 'var(--text-main)' }}>
                 {formatTime(displayTime)}
             </span>
-            <button onClick={handleToggle} style={{ fontSize: '0.75rem', background: 'var(--bg-card-hover)', color: 'var(--text-main)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>
-                {isActive ? 'Pause' : 'Start'}
+            <button onClick={handleToggle} style={{ 
+                fontSize: '0.75rem', 
+                background: isSleeping ? 'var(--coral)' : 'var(--bg-card-hover)', 
+                color: isSleeping ? 'white' : 'var(--text-main)', 
+                border: '1px solid var(--border)', 
+                padding: '4px 8px', 
+                borderRadius: '4px', 
+                cursor: 'pointer',
+                opacity: isSleeping ? 0.8 : 1
+            }}>
+                {isSleeping ? 'SLEEPING' : (isActive ? 'Pause' : 'Start')}
             </button>
             {!isSessionActive && (
                 <button onClick={handleReset} style={{ fontSize: '0.75rem', background: 'var(--bg-card-hover)', color: 'var(--text-main)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>
