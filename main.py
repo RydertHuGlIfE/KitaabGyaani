@@ -736,6 +736,113 @@ def visualize_subtopic():
     except Exception as e:
         return jsonify({"error": f"Error generating subtopic content: {str(e)}"}), 500
 
+def slugify_meme_text(text):
+    """Formats text for memegen.link URLs."""
+    if not text: return "_"
+    # Special character replacements according to memegen.link API
+    # Spaces to _, underscores to __, dashes to --, ? to ~q, etc.
+    text = text.replace("_", "__").replace("-", "--").replace(" ", "_")
+    replacements = [
+        ("?", "~q"), ("&", "~a"), ("%", "~p"), ("#", "~h"), ("/", "~s"), ("\\", "~b"), ("\"", "''")
+    ]
+    for old, new in replacements:
+        text = text.replace(old, new)
+    return text
+
+@app.route('/memes/generate', methods=['POST'])
+def generate_ai_memes():
+    """Generates AI memes using PDF content and strict memegen.link templates."""
+    # 1. Get current PDF content for context
+    pdf_text, doc_count = get_combined_pdf_content(limit=15000) # Small limit for speed
+    filename = session.get('pdf_filename', 'Study')
+    
+    # Map of ID to (Display Name, Required Segments)
+    MEME_REGISTRY = {
+        "drake": ("Drake Hotline Bling", 2),
+        "doge": ("Doge", 4),
+        "gru": ("Gru's Plan", 4),
+        "rollsafe": ("Roll Safe / Think About It", 2)
+    }
+    
+    selected_ids = random.sample(list(MEME_REGISTRY.keys()), 4)
+    template_info = [f"{tid} ({MEME_REGISTRY[tid][1]} segments)" for tid in selected_ids]
+    
+    prompt = f"""
+    You are an AI Meme Generator specializing in Academic Life and the specific topics in this PDF.
+    
+    CONTENT CONTEXT (PDF): 
+    "{pdf_text[:5000]}"
+    
+    TASK: Generate 4 hilarious memes that relate the PDF content above to student life struggles.
+    TEMPLATES: {", ".join(template_info)}
+    
+    RETURN ONLY a JSON list of 4 objects:
+    [
+      {{"id": "template_id", "captions": ["Caption 1", "Caption 2", ...]}}
+    ]
+    
+    RULES:
+    - VERY IMPORTANT: Each caption MUST be under 35 characters.
+    - The 'captions' list MUST match the segment count for that template.
+    - Use specific terms from the PDF content in the jokes.
+    - RETURN ONLY VALID JSON.
+    """
+
+    try:
+        response = model.generate_content(prompt)
+        raw_text = response.text.strip()
+        
+        if "```json" in raw_text:
+            raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw_text:
+            raw_text = raw_text.split("```")[1].split("```")[0].strip()
+            
+        ai_meme_data = json.loads(raw_text)
+        
+        memes_output = []
+        for item in ai_meme_data:
+            tid = item.get('id')
+            if tid not in MEME_REGISTRY: continue
+            
+            # Zero-risk slugification for Memegen.link
+            def safe_slug(s):
+                if not s: return "_"
+                import re
+                # 1. Clean punctuation and force uppercase
+                s = s.upper().strip()
+                s = re.sub(r'[^A-Z0-9\s]', '', s) # Keep only letters, numbers, and spaces
+                # 2. Limit length to 40 chars per segment to avoid 404s
+                s = s[:40].strip()
+                # 3. Final URL formatting (spaces to _)
+                return s.replace(" ", "_") if s else "_"
+
+            captions = [safe_slug(c) for c in item.get('captions', [])]
+            
+            # Force segment count match
+            req_len = MEME_REGISTRY[tid][1]
+            while len(captions) < req_len: captions.append("_")
+            captions = captions[:req_len]
+            
+            url = f"https://api.memegen.link/images/{tid}/{'/'.join(captions)}.png"
+            print(f"DEBUG: Generated Meme URL: {url}")
+            memes_output.append({
+                "url": url,
+                "name": MEME_REGISTRY[tid][0]
+            })
+
+        return jsonify({"memes": memes_output})
+    except Exception as e:
+        import sys
+        print(f"Meme Generation Error: {str(e)}")
+        sys.stdout.flush()
+        # Fallback memes (exactly 4)
+        return jsonify({"memes": [
+            {"url": "https://api.memegen.link/images/drake/opening_100_page_pdf/asking_ai_assistant_for_meme.png", "name": "Drake Fallback"},
+            {"url": "https://api.memegen.link/images/rollsafe/if_i_dont_open_the_pdf/i_cant_fail_the_exam.png", "name": "Safe Fallback"},
+            {"url": "https://api.memegen.link/images/gru/read_the_first_page/forget_everything/forget_everything/check_memes_instead.png", "name": "Gru Fallback"},
+            {"url": "https://api.memegen.link/images/doge/so_pdf/much_study/very_confusion/wow.png", "name": "Doge Fallback"}
+        ]})
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 

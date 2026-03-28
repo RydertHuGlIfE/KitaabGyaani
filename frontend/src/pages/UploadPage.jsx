@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import MemeCarousel from '../components/MemeCarousel'
 
 export default function UploadPage() {
     const [mode, setMode] = useState('single')
@@ -159,6 +160,8 @@ export default function UploadPage() {
                         <p>Test your knowledge with AI-generated MCQ &amp; theory questions</p>
                     </div>
                 </div>
+
+                <MemeCarousel />
 
                 {/* Mascot */}
                 <div style={{ position: 'fixed', bottom: '20px', right: '20px', zIndex: 10, animation: 'float 3s ease-in-out infinite' }}>

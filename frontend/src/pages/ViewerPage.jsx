@@ -4,6 +4,7 @@ import MermaidDiagram from '../components/MermaidDiagram'
 import SpaceInvadersGame from '../components/SpaceInvadersGame'
 import BineuralBeats from '../components/BineuralBeats'
 import ScreenRecorder from '../components/ScreenRecorder'
+import MemeCarousel from '../components/MemeCarousel'
 import '../components/SpaceInvaders.css'
 
 export default function ViewerPage() {
@@ -22,6 +23,7 @@ export default function ViewerPage() {
     const [ytInput, setYtInput] = useState('')
     const [showBineural, setShowBineural] = useState(false)
     const [showRecorder, setShowRecorder] = useState(false)
+    const [showMemes, setShowMemes] = useState(false)
 
     // Visualizer States
     const [showVisualizer, setShowVisualizer] = useState(false)
@@ -479,6 +481,10 @@ export default function ViewerPage() {
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" fill="currentColor" /></svg>
                             Record
                         </button>
+                        <button className="action-btn" onClick={() => setShowMemes(true)}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
+                            Meme Break
+                        </button>
                         <button className="action-btn collab-btn" onClick={handleStartCollab} disabled={loading}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
                             Start Collab
@@ -603,6 +609,14 @@ export default function ViewerPage() {
 
             {showRecorder && (
                 <ScreenRecorder onClose={() => setShowRecorder(false)} />
+            )}
+
+            {showMemes && (
+                <div className="subtopic-modal-overlay" onClick={() => setShowMemes(false)}>
+                    <div onClick={e => e.stopPropagation()} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                        <MemeCarousel />
+                    </div>
+                </div>
             )}
         </div>
     )

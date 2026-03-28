@@ -18,6 +18,7 @@ export default defineConfig({
       '/switch-pdf': 'http://localhost:5000',
       '/visualize': 'http://localhost:5000',
       '/youtube': 'http://localhost:5000',
+      '/memes': 'http://localhost:5000',
       // Collab session REST routes
       '/api': 'http://localhost:5000',
       // Socket.IO WebSocket + polling

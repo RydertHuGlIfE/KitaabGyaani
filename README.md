@@ -11,9 +11,10 @@ KitaabGenie is a real-time collaborative AI study ecosystem. It transforms textb
 - **Gamified Quizzing:** Challenge yourself with "Space Invaders" MCQs (4-life system) or descriptive Theory Mode with AI evaluation.
 - **Focus Mode (Eye-Tracking):** Real-time webcam monitoring via MediaPipe. Detects if you are sleeping or away from the frame to pause timers and trigger alarms. (o_o)
 - **Binaural Beats Engine:** Integrated audio for Alpha/Beta/Theta brainwave entrainment to match your study mood.
-- **Wellness Tools:** Integrated Pomodoro timer, Night Light (warm filter), and Inversion Filter (high contrast) for late-night sessions.
+- **Wellness Tools:** Integrated Pomodoro timer, Night Light (warm filter), and Inversion Filter (high contrast).
 - **YouTube Summarizer:** Instant summaries of educational video transcripts directly within the platform.
 - **Screen Recorder:** Capture your study sessions or AI interactions with the built-in screen/audio recorder. [REC]
+- **Meme Carousel:** Take a quick break with random trending memes fetched via Imgflip API. :-P
 
 ## :-P Tech Stack
 
@@ -21,7 +22,7 @@ KitaabGenie is a real-time collaborative AI study ecosystem. It transforms textb
 - **Intelligence:** Google Gemini 1.5 Flash API
 - **Real-Time:** WebSockets (Socket.IO)
 - **Vision:** @mediapipe/tasks-vision
-- **Audio:** Web Audio API (Oscillators for Alarms)
+- **Games/Audio:** Three.js, Web Audio API
 
 ## (-_-) Prerequisites
 
