@@ -79,6 +79,19 @@
   --night-light-intensity: 0.4; /* 40% intensity */
 }
 
+/* Inversion Filter */
+body.inversion-active {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Re-invert media so they look normal */
+body.inversion-active img,
+body.inversion-active video,
+body.inversion-active canvas,
+body.inversion-active .pdf-viewer-container iframe {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 /* ═══════════════════════════════════════════════════════════════
    DARK THEME
    ═══════════════════════════════════════════════════════════════ */

@@ -8,6 +8,7 @@ export default function Header() {
     const { theme, toggleTheme } = useTheme()
     const { isFocusModeActive, toggleFocusMode } = useFocus()
     const [nightLight, setNightLight] = useState(localStorage.getItem('nightLight') === 'true')
+    const [isInverted, setIsInverted] = useState(localStorage.getItem('isInverted') === 'true')
     const location = useLocation()
 
     useEffect(() => {
@@ -18,6 +19,15 @@ export default function Header() {
         }
         localStorage.setItem('nightLight', nightLight)
     }, [nightLight])
+
+    useEffect(() => {
+        if (isInverted) {
+            document.body.classList.add('inversion-active')
+        } else {
+            document.body.classList.remove('inversion-active')
+        }
+        localStorage.setItem('isInverted', isInverted)
+    }, [isInverted])
 
     return (
         <header className="header">
@@ -71,6 +81,19 @@ export default function Header() {
                 </button>
 
                 <button
+                    className={`theme-toggle${isInverted ? ' active' : ''}`}
+                    onClick={() => setIsInverted(!isInverted)}
+                    aria-label="Toggle inversion filter"
+                    title={`Turn ${isInverted ? 'off' : 'on'} inversion filter`}
+                >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2v20" />
+                        <path d="M12 2a10 10 0 0 0 0 20" />
+                        <path d="M12 18a6 6 0 0 0 0-12" />
+                    </svg>
+                </button>
+
+                <button
                     className="theme-toggle"
                     onClick={toggleTheme}
                     aria-label="Toggle theme"
@@ -113,10 +136,10 @@ export default function Header() {
                 </button>
 
                 <div className="header-badge">
-                    <span className="status-dot" />
-                    AI Online
-                </div>
+                <span className="status-dot" />
+                AI Online
             </div>
-        </header>
+        </div>
+        </header >
     )
 }
